@@ -42,6 +42,7 @@ add_library(encore_core STATIC
   src/core/Zip.cpp
   src/data/IffImage.cpp
   src/data/GameFiles.cpp
+  src/data/OpenGame.cpp
   src/assets/Exe.cpp
   src/core/Sha256.cpp
   src/data/GameVersion.cpp
@@ -169,6 +170,7 @@ add_executable(encore-tests
   tests/main.cpp
   tests/test_core.cpp
   tests/test_game.cpp
+  tests/test_open_format.cpp
 )
 target_compile_definitions(encore-tests PRIVATE ENCORE_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 target_link_libraries(encore-tests PRIVATE encore_core)
@@ -182,3 +184,5 @@ target_link_libraries(encore-play PRIVATE encore_core)
 
 add_executable(encore-extract tools/extract.cpp)
 target_link_libraries(encore-extract PRIVATE encore_core)
+add_executable(encore-convert tools/convert.cpp)
+target_link_libraries(encore-convert PRIVATE encore_core)

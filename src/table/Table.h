@@ -62,6 +62,8 @@ struct TableAction {
 
 class Table {
  public:
+  Table(TableAssets assets, ByteView module, const Config& config, int table, u64 seed);
+  /// Straight from the table's DOS executable, as the tests and tools do.
   Table(ByteView prg, ByteView module, const Config& config, int table, u64 seed);
   ~Table();
 

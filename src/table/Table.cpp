@@ -30,7 +30,10 @@ constexpr std::array<u16, 36> kMatchTimingHigh = {22, 28, 25, 25, 22, 19, 18, 15
 }  // namespace
 
 Table::Table(ByteView prg, ByteView module, const Config& config, int table, u64 seed)
-    : assets_(TableAssets::load(prg, table)),
+    : Table(TableAssets::load(prg, table), module, config, table, seed) {}
+
+Table::Table(TableAssets assets, ByteView module, const Config& config, int table, u64 seed)
+    : assets_(std::move(assets)),
       options_(config.options),
       highScores_(config.highScores[static_cast<std::size_t>(table)]),
       rng_(seed),

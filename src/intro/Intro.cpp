@@ -32,7 +32,10 @@ std::vector<u8> bytes(std::string_view s) { return {s.begin(), s.end()}; }
 }  // namespace
 
 Intro::Intro(ByteView prg, ByteView module, const Config& config, int returningFrom)
-    : assets_(IntroAssets::load(prg)), config_(config) {
+    : Intro(IntroAssets::load(prg), module, config, returningFrom) {}
+
+Intro::Intro(IntroAssets assets, ByteView module, const Config& config, int returningFrom)
+    : assets_(std::move(assets)), config_(config) {
   Mod mod = Mod::load(module);
   const u8 wrap = static_cast<u8>(mod.positions.size());
   player_ = std::make_unique<Player>(std::move(mod), std::make_shared<SimpleSequencer>(wrap));
