@@ -46,11 +46,14 @@ add_library(encore_core STATIC
   src/core/Sha256.cpp
   src/data/GameVersion.cpp
   src/assets/TableAssets.cpp
+  src/assets/OpenFormat.cpp
+  src/assets/TableAssetsIo.cpp
   src/sound/Mod.cpp
   src/sound/Sequencer.cpp
   src/sound/Player.cpp
   src/game/Config.cpp
   src/intro/IntroAssets.cpp
+  src/intro/IntroAssetsIo.cpp
   src/intro/Intro.cpp
   src/table/Table.cpp
   src/table/TablePhysics.cpp
