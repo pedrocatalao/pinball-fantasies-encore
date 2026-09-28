@@ -171,7 +171,9 @@ bool App::init() {
   // whatever the platform calls it. The archive holds an hd folder, which is the first place
   // the replacement pictures are looked for, so what is fetched now is used by the loading
   // below. Turning the offer down ends the game.
-  {
+  // Off for now: set to true to put the question at start again.
+  constexpr bool kOfferDownloadAtStart = false;
+  if (kOfferDownloadAtStart) {
     // The letters come with this version, not from the original, so the question can be put
     // before a single game file is there.
     askFont_ = loadAskFont(hdPicturePath("font.png"));
