@@ -38,6 +38,7 @@ add_library(encore_core STATIC
   src/core/File.cpp
   src/core/Png.cpp
   src/core/Inflate.cpp
+  src/core/Json.cpp
   src/core/Zip.cpp
   src/data/IffImage.cpp
   src/data/GameFiles.cpp
