@@ -883,8 +883,7 @@ const Jingle& TableAssets::jingle(JingleBind b) const {
 TableAssets TableAssets::load(ByteView prg, int table) {
   TableAssets a;
   a.table = table;
-  a.exe = Exe::load(prg);
-  Exe& exe = a.exe;
+  Exe exe = Exe::load(prg);
   check(exe.codeByte(static_cast<u16>(exe.ip + 0xe)) == 0xb8, "entry code");
   exe.ds = exe.codeWord(static_cast<u16>(exe.ip + 0xf));
 
