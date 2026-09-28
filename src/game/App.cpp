@@ -8,13 +8,16 @@
 #include <memory>
 #include <optional>
 #include <string_view>
+#include <system_error>
 #include <utility>
 
 #include "core/Error.h"
 #include "core/File.h"
 #include "core/Log.h"
 #include "core/Png.h"
+#include "assets/TableAssetsIo.h"
 #include "game/Fantasy.h"
+#include "intro/IntroAssetsIo.h"
 #include "platform/DataLocator.h"
 #include "platform/ImageFile.h"
 
@@ -179,18 +182,45 @@ bool App::init() {
             [this](double seconds) { drawWaiting(seconds, "DOWNLOADING GAME FILES"); }))
       return false;
   }
-  // The game files are looked for only once the download above has had its say, so that a
-  // first start can fetch what it offers before anything of the original is asked for.
-  const auto dataDir = locateGameData(options_.dataDir);
-  if (!dataDir) {
-    log::error("the Pinball Fantasies data files were not found");
-    reportMissingGameData();
-    return false;
+  // The game is read in the open format only, from one game folder. A copy of the DOS release
+  // -- the one given with --data, or the one in FANTASY -- is converted into it the first time
+  // and not read again; --data may also name a converted game directly. This is looked at only
+  // once the download above has had its say, so that a first start can fetch what it offers
+  // before anything is asked for.
+  {
+    // A build made from the source keeps it in the project's own game folder, which git
+    // ignores, the way it reads the pictures from assets/hd; any other build keeps it beside
+    // the options.
+    const std::filesystem::path project(ENCORE_SOURCE_DIR);
+    std::error_code ec;
+    const std::filesystem::path converted =
+        std::filesystem::exists(project / "CMakeLists.txt", ec) ? project / "game" : saveDir_ / "game";
+    std::optional<std::filesystem::path> open;
+    if (options_.dataDir && OpenGame::isIn(*options_.dataDir))
+      open = *options_.dataDir;
+    else if (!options_.dataDir && OpenGame::isIn(converted))
+      open = converted;
+    else if (const auto dos = locateGameData(options_.dataDir)) {
+      try {
+        convertGame(*dos, converted);
+        open = converted;
+      } catch (const DataError& e) {
+        log::error(e.what());
+        reportError(std::string("The game files could not be converted.\n\n") + e.what());
+        return false;
+      }
+    }
+    if (!open) {
+      log::error("the Pinball Fantasies data files were not found");
+      reportMissingGameData();
+      return false;
+    }
+    game_ = OpenGame::at(*open);
   }
-  files_ = GameFiles::fromDirectory(*dataDir);
-  log::info("game data: " + files_.directory.string());
-  // Options and high scores live in this version's own folder, never in the game folder.
-  config_ = Config::load(saveDir_, files_.directory);
+  log::info("game data: " + game_.directory.string());
+  // Options and high scores live in this version's own folder; the first time, they are
+  // taken from the converted game, which brought them along from the DOS folder if it had them.
+  config_ = Config::load(saveDir_, game_.directory);
   if (options_.resolution) config_.options.resolution = *options_.resolution;
 
   loadHdPictures();
@@ -322,11 +352,10 @@ void App::resizeFrame(int width, int height, double pixelAspect) {
 void App::openIntro(int returningFrom) {
   audio_.setSource({});
   table_.reset();
-  // The slideshow plays to INTRO.MOD; coming back from a table the menu plays MOD2.MOD.
-  const auto prg = file::readAll(files_.intro);
-  const auto mod = file::readAll(returningFrom < 0 ? files_.introMusic : files_.menuMusic);
-  if (!prg || !mod) throw DataError("cannot read INTRO.PRG or its music");
-  intro_ = std::make_unique<Intro>(*prg, *mod, config_, returningFrom);
+  // The slideshow plays to the intro's music; coming back from a table the menu has its own.
+  const auto mod = file::readAll(returningFrom < 0 ? game_.introMusic : game_.menuMusic);
+  if (!mod) throw DataError("cannot read the intro's music in " + game_.intro.string());
+  intro_ = std::make_unique<Intro>(loadIntroAssets(game_.intro), *mod, config_, returningFrom);
   resizeFrame(intro_->width(), intro_->height(), 1.0);
   audio_.setSource([p = &intro_->player()](float* out, int frames) { p->render(out, frames); });
 }
@@ -334,11 +363,11 @@ void App::openIntro(int returningFrom) {
 void App::openTable(int index) {
   audio_.setSource({});
   intro_.reset();
-  const auto prg = file::readAll(files_.tables[static_cast<std::size_t>(index)]);
-  const auto mod = file::readAll(files_.tableMusic[static_cast<std::size_t>(index)]);
-  if (!prg || !mod) throw DataError("cannot read the table files");
+  const auto i = static_cast<std::size_t>(index);
+  const auto mod = file::readAll(game_.tableMusic[i]);
+  if (!mod) throw DataError("cannot read the music in " + game_.tables[i].string());
   const u64 seed = static_cast<u64>(std::chrono::steady_clock::now().time_since_epoch().count());
-  table_ = std::make_unique<Table>(*prg, *mod, config_, index, seed);
+  table_ = std::make_unique<Table>(loadTableAssets(game_.tables[i]), *mod, config_, index, seed);
   resizeFrame(320, table_->screenHeight(), tablePixelAspect(table_->screenHeight()));
   audio_.setSource([p = &table_->player()](float* out, int frames) { p->render(out, frames); });
   loadFlipperPictures(index);
