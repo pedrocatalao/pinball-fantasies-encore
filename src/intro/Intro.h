@@ -22,6 +22,8 @@ struct IntroAction {
 class Intro {
  public:
   /// `returningFrom`: the table just left (skips the slideshow), or -1 at start-up.
+  Intro(IntroAssets assets, ByteView module, const Config& config, int returningFrom);
+  /// Straight from INTRO.PRG, as the tests do.
   Intro(ByteView prg, ByteView module, const Config& config, int returningFrom);
 
   IntroAction runFrame();

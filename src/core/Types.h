@@ -46,6 +46,7 @@ struct Rect {
 
 struct Rgb {
   u8 r = 0, g = 0, b = 0;
+  bool operator==(const Rgb&) const = default;
 };
 
 }  // namespace pfr

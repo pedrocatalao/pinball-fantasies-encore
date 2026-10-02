@@ -5,7 +5,7 @@
 #include <memory>
 #include <optional>
 
-#include "data/GameFiles.h"
+#include "data/OpenGame.h"
 #include "game/Config.h"
 #include "gfx/Framebuffer.h"
 #include "gfx/Palette.h"
@@ -70,7 +70,7 @@ class App {
 
   AppOptions options_;
   std::filesystem::path shaderDir_, saveDir_;
-  GameFiles files_;
+  OpenGame game_;  ///< the only game data read: the open format, converted once from the DOS files
   Config config_;
   Window window_;
   Renderer renderer_;

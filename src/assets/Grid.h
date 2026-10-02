@@ -29,6 +29,7 @@ class Grid {
       for (int i = 0; i < src.w_; ++i) (*this)(x + i, y + j) = src(i, j);
   }
   const std::vector<T>& raw() const { return data_; }
+  bool operator==(const Grid&) const = default;
 
  private:
   int w_ = 0, h_ = 0;

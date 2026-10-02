@@ -15,3 +15,5 @@ __pycache__/
 # it is derived from the game's files, which are never redistributed.
 re/*
 !re/legacy-engine/
+# The game converted from the DOS release, kept here while developing: never committed.
+/game/
