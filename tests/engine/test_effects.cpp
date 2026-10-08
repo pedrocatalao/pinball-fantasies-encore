@@ -1,5 +1,6 @@
 // The table's effects as they reach the sound card, against Speed Devils' own module (skipped
 // when the game files are not there).
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <vector>
@@ -27,6 +28,8 @@ Bytes module() {
   return path ? file::readAll(*path).value_or(Bytes{}) : Bytes{};
 }
 
+double now() { return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count(); }
+
 std::vector<float> render(MusicDriver& d, int frames) {
   std::vector<float> out(static_cast<std::size_t>(frames) * 2);
   d.render(out.data(), frames);
@@ -49,7 +52,33 @@ double apart(const std::vector<float>& a, const std::vector<float>& b) {
   return loud > 0 ? d / loud : 0;
 }
 
+/// The first frame where two renderings differ, or -1.
+int firstDifference(const std::vector<float>& a, const std::vector<float>& b) {
+  for (std::size_t i = 0; i < a.size(); ++i)
+    if (a[i] != b[i]) return static_cast<int>(i / 2);
+  return -1;
+}
+
 }  // namespace
+
+// An effect is heard one helping of sound after the moment it was asked for, wherever in the
+// helping that falls: asked for 4 ms before the card asks for 512 samples (10.7 ms), it starts
+// 6.7 ms into them.
+TEST(an_effect_is_heard_a_helping_after_its_moment) {
+  if (!haveData()) return;
+  const Bytes mod = module();
+  MusicDriver with, without;
+  CHECK(with.load(mod) && without.load(mod));
+  with.start();
+  without.start();
+  render(with, 4800), render(without, 4800);
+  with.stampTime(now() - 0.004);
+  with.effect(kSlingshot, 18, 0, 4);
+  const int at = firstDifference(render(with, 512), render(without, 512));
+  const int expected = static_cast<int>((512.0 / 48000 - 0.004) * 48000);
+  std::printf("  heard from %d of 512, expected about %d\n", at, expected);
+  CHECK(at >= expected - 16 && at <= expected + 16);
+}
 
 // A flipper's sound no longer cuts off a slingshot's: the slingshot plays on to its end beside it.
 TEST(a_slingshot_plays_on_under_a_flipper) {
@@ -60,7 +89,7 @@ TEST(a_slingshot_plays_on_under_a_flipper) {
   both.start();
   flipperOnly.start();
   render(both, 4800), render(flipperOnly, 4800);
-  both.effect(kSlingshot, 18, 0, 4);
+  both.effect(kSlingshot, 18, 0, 4);  // never stamped: heard at once
   render(both, 960), render(flipperOnly, 960);
   both.effect(kFlipper, 18, 0, 4);
   flipperOnly.effect(kFlipper, 18, 0, 4);

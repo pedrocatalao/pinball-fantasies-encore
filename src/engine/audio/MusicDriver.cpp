@@ -3,6 +3,8 @@
 #include <utility>
 
 #include <algorithm>
+#include <chrono>
+#include <cmath>
 #include <cstring>
 
 namespace encore {
@@ -102,6 +104,7 @@ bool MusicDriver::load(ByteView mod) {
   ticksLeft_ = 1;
   ch_.fill(Channel{});
   voices_.fill(Voice{});
+  asked_.clear();
   loaded_ = true;
   return true;
 }
@@ -159,21 +162,27 @@ u8 MusicDriver::jump(u16 position) {
 }
 
 /// Function 0x11 (cs:01db): a note on a channel, with a volume if one is given.
+/// (Here it waits for its moment in the sound: render.)
 void MusicDriver::effect(u8 sample, u8 note, u8 volume, u8 channel) {
   std::lock_guard lock(mutex_);
   if (!loaded_ || channel < 1 || channel > 4) return;
-  startEffect(sample, note, volume, channel);
+  asked_.push_back({sample, note, volume, channel, stamp_});
+}
+
+void MusicDriver::stampTime(double seconds) {
+  std::lock_guard lock(mutex_);
+  stamp_ = seconds;
 }
 
 /// The driver's own note on the channel; what it would cut off, if it was another effect still
 /// sounding, plays on to its end on a voice of its own (the oldest such voice gives way). The
 /// same effect again starts over, as in the original: a bonus counted, a bumper hit and hit
 /// again, would otherwise pile up into a blur.
-void MusicDriver::startEffect(u8 sample, u8 note, u8 volume, u8 channel) {
-  Channel& c = ch_[channel - 1u];
+void MusicDriver::startEffect(const Asked& a) {
+  Channel& c = ch_[a.channel - 1u];
   const bool sounding = c.data && c.position < c.end && c.loops <= 2;  // (one that loops would never end)
-  const bool another = sample != 0 && sample <= 31 && c.data != samples_[sample - 1u].data;
-  if (another && note != 0 && c.byEffect && sounding) {
+  const bool another = a.sample != 0 && a.sample <= 31 && c.data != samples_[a.sample - 1u].data;
+  if (another && a.note != 0 && c.byEffect && sounding) {
     Voice* to = &voices_[0];
     for (Voice& v : voices_) {
       if (!v.c.data) {
@@ -182,9 +191,9 @@ void MusicDriver::startEffect(u8 sample, u8 note, u8 volume, u8 channel) {
       }
       if (v.since < to->since) to = &v;
     }
-    *to = {c, channel <= 2, ++voicesStarted_};
+    *to = {c, a.channel <= 2, ++voicesStarted_};
   }
-  trigger(c, sample, note, volume ? 0x0c : 0, volume);
+  trigger(c, a.sample, a.note, a.volume ? 0x0c : 0, a.volume);
   c.byEffect = true;
 }
 
@@ -408,13 +417,39 @@ void MusicDriver::mix(float* out, std::size_t frames) {
 }
 
 void MusicDriver::render(float* out, int frames) {
+  const double now = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+  renderAt(out, frames, now);
+}
+
+/// `now`: when the card asked, in seconds of the steady clock; below nought, every effect
+/// waiting is heard at once.
+void MusicDriver::renderAt(float* out, int frames, double now) {
   std::lock_guard lock(mutex_);
   std::size_t left = frames > 0 ? static_cast<std::size_t>(frames) : 0;
   float* const begin = out;
   std::fill_n(out, left * 2, 0.0f);
   // stopped, or held by this version's pause: nothing sounds, and nothing moves on
-  if (!loaded_ || !playing_ || held_) return;
+  if (!loaded_ || !playing_ || held_) {
+    for (const Asked& a : asked_) startEffect(a);
+    asked_.clear();
+    return;
+  }
+  // Where in this helping each effect waiting falls: one helping after its moment, so that
+  // those asked for since the last helping spread over this one as they were asked. One
+  // later than that (a frame run late) is heard at once; one not yet due waits for the next.
+  const double helping = static_cast<double>(left) / rate_;
+  auto due = [&](const Asked& a) -> std::size_t {
+    if (a.when < 0 || now < 0) return 0;
+    const double at = std::round((a.when + helping - now) * rate_);
+    return at <= 0 ? 0 : static_cast<std::size_t>(at);
+  };
+  std::size_t done = 0;
   while (left != 0) {
+    // the effects due by now, in the order asked
+    while (!asked_.empty() && due(asked_.front()) <= done) {
+      startEffect(asked_.front());
+      asked_.erase(asked_.begin());
+    }
     if (tickFrames_ < 1.0) {
       if (conductor) {
         if (const int place = conductor->interrupt(); place >= 0) {
@@ -432,11 +467,13 @@ void MusicDriver::render(float* out, int frames) {
       tick();
       tickFrames_ += rate_ / 50.0;
     }
-    const std::size_t now = std::min(left, static_cast<std::size_t>(tickFrames_));
-    mix(out, now);
-    out += now * 2;
-    left -= now;
-    tickFrames_ -= static_cast<double>(now);
+    std::size_t step = std::min(left, static_cast<std::size_t>(tickFrames_));
+    if (!asked_.empty()) step = std::min(step, std::max<std::size_t>(due(asked_.front()) - done, 1));
+    mix(out, step);
+    out += step * 2;
+    left -= step;
+    done += step;
+    tickFrames_ -= static_cast<double>(step);
   }
   // Overlapping effects can add up past full scale: kept within it.
   for (float* s = begin; s != out; ++s) *s = std::clamp(*s, -1.0f, 1.0f);
@@ -447,7 +484,7 @@ void MusicDriver::pass(double seconds) {
   const int frames = static_cast<int>(passed_);
   passed_ -= frames;
   unheard_.resize(static_cast<std::size_t>(frames) * 2);
-  render(unheard_.data(), frames);
+  renderAt(unheard_.data(), frames, -1);
 }
 
 }  // namespace encore

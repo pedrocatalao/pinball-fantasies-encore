@@ -99,6 +99,9 @@ class TableGame {
   void sound(float* out, int frames);
   /// With no sound card, a frame's worth of the music is played to nobody instead.
   void noSound() { music_.pass(1.0 / 60); }
+  /// The moment the next frame belongs to, in seconds of the steady clock: its sounds are
+  /// heard a fixed time after it (MusicDriver::stampTime).
+  void stampSound(double seconds) { music_.stampTime(seconds); }
   bool silent = false;  ///< plays, but hands out silence
 
   Engine& engine() { return *engine_; }
