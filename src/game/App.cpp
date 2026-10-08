@@ -835,7 +835,7 @@ bool App::offerArt() {
       if (event.type == SDL_EVENT_QUIT) return false;
       windowEvent(event);
     }
-    if (waited > 0.3) drawWaiting(waited, "LOOKING FOR HD GFX ART");
+    if (waited > 0.3) drawWaiting(waited, "LOOKING FOR REMASTERED ARTWORK");
   }
   const auto set = artCheck_.get();
   if (!set) return true;
@@ -860,8 +860,8 @@ bool App::offerArt() {
   }
   if (declinedArt(saveDir_) >= set->version) return true;
 
-  const bool wanted = have ? askYesNo({"UPDATE THE", "HD GFX ART?", megabytes(bytes)})
-                           : askYesNo({"DOWNLOAD THE", "HD GFX ART?", megabytes(bytes)});
+  const bool wanted = have ? askYesNo({"UPDATE THE", "REMASTERED ARTWORK?", megabytes(bytes)})
+                           : askYesNo({"DOWNLOAD THE", "REMASTERED ARTWORK?", megabytes(bytes)});
   if (!wanted) {
     declineArt(saveDir_, set->version);
     log::info("HD pictures: version " + std::to_string(set->version) + " turned down");
@@ -891,7 +891,7 @@ bool App::offerArt() {
     }
     const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - began).count();
     const u64 done = progress.done;
-    drawWaiting(seconds, "DOWNLOADING HD GFX ART",
+    drawWaiting(seconds, "DOWNLOADING REMASTERED ARTWORK",
                 progress.cancel ? std::string("STOPPING") : (std::to_string(done / 1048576) + " OF " + megabytes(bytes)));
     SDL_Delay(16);
   }
