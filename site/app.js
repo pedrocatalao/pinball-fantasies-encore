@@ -173,14 +173,45 @@ function row(table, s) {
 }
 
 // One slide per table, made once; their boards are filled in whenever the filters change.
+// A board shows its first ten, and the rest when asked.
+const TOP = 10;
 const slides = TABLES.map((t, i) => {
   const board = el("ol", { className: "board" });
   const empty = el("p", { className: "dmd-text board-empty", hidden: true });
-  const slide = el("article", { className: "slide", ariaLabel: t.name, ariaRoleDescription: "slide" },
+  const more = el("button", { type: "button", className: "board-more", hidden: true });
+  const s = { board, empty, more, all: false };
+  more.onclick = async () => {
+    // Back to ten: first up to the table's top, then the rest folded away, so the reader goes
+    // up with the list rather than being left below it. (The page is scrolled, not the slide
+    // into view: that would move the carousel itself.)
+    if (s.all) {
+      const top = s.slide.getBoundingClientRect().top + window.scrollY - 16;
+      if (top < window.scrollY) {
+        const arrived = new Promise((done) => {
+          window.addEventListener("scrollend", done, { once: true });
+          setTimeout(done, 1000);  // (where the browser does not say when it has stopped)
+        });
+        window.scrollTo({ top, behavior: "smooth" });
+        await arrived;
+      }
+    }
+    s.all = !s.all;
+    shorten(s);
+    fit();
+  };
+  s.slide = el("article", { className: "slide", ariaLabel: t.name, ariaRoleDescription: "slide" },
     el("img", { src: `img/table${i + 1}.jpg`, alt: t.name, width: 1194, height: 285 }),
-    el("div", { className: "dmd dmd-board", ariaLive: "polite" }, board, empty));
-  return { slide, board, empty };
+    el("div", { className: "dmd dmd-board", ariaLive: "polite" }, board, empty, more));
+  return s;
 });
+
+// The rows past the first ten hidden or shown, and the button saying which it will do.
+function shorten(s) {
+  const rows = [...s.board.children];
+  rows.forEach((r, n) => { r.hidden = !s.all && n >= TOP; });
+  s.more.hidden = rows.length <= TOP;
+  s.more.textContent = s.all ? `Show top ${TOP}` : `Show all ${rows.length}`;
+}
 $("track").replaceChildren(...slides.map((s) => s.slide));
 $("dots").replaceChildren(...TABLES.map((t, i) =>
   el("button", { type: "button", role: "tab", ariaLabel: t.name, onclick: () => show(i, true) })));
@@ -197,12 +228,14 @@ async function loadBoards() {
       const { scores } = await (await fetch(`/v1/scores?${q}`)).json();
       if (mine !== asked) return;  // the filters changed meanwhile
       board.replaceChildren(...scores.map((s) => row(t, s)));
+      shorten(slides[i]);
       empty.textContent = "NO SCORES YET";
       empty.hidden = scores.length > 0;
       fit();
     } catch {
       if (mine !== asked) return;
       board.replaceChildren();
+      shorten(slides[i]);
       empty.textContent = "SCORES UNAVAILABLE";
       empty.hidden = false;
       fit();

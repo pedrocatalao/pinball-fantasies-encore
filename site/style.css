@@ -405,6 +405,7 @@ code, .kbd {
   border-bottom: 1px dashed #2a160a;
 }
 .board li:last-child { border-bottom: none; }
+.board li[hidden] { display: none; }
 
 .board .rank, .board .who, .board .score {
   font-family: "Doto", ui-monospace, monospace;
@@ -458,6 +459,24 @@ code, .kbd {
 .board .replay:hover { color: var(--amber); border-color: var(--amber-dim); text-shadow: var(--glow); }
 
 .board-empty { font-size: 26px; text-align: center; margin: 28px 0; }
+/* Under a board longer than its first ten: the rest, or back to ten. */
+.board-more {
+  display: block;
+  margin: 12px auto 2px;
+  font-family: "Doto", ui-monospace, monospace;
+  font-weight: 800;
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--amber-dim);
+  background: var(--panel);
+  border: 1px solid #2a180c;
+  border-radius: 5px;
+  padding: 5px 12px 3px;
+  cursor: pointer;
+}
+.board-more:hover { color: var(--amber); border-color: var(--amber-dim); }
+.board-more[hidden] { display: none; }
 
 .how { margin-top: 18px; color: var(--muted); font-size: 15px; }
 
