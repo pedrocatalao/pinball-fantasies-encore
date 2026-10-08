@@ -101,6 +101,7 @@ bool MusicDriver::load(ByteView mod) {
   speed_ = 6;
   ticksLeft_ = 1;
   ch_.fill(Channel{});
+  voices_.fill(Voice{});
   loaded_ = true;
   return true;
 }
@@ -135,6 +136,7 @@ void MusicDriver::stop() {
     c.volume = 0;
     c.end = c.loopStart = c.loops = c.position = 0;
   }
+  voices_.fill(Voice{});
 }
 
 void MusicDriver::volume(u16 level) {
@@ -160,7 +162,30 @@ u8 MusicDriver::jump(u16 position) {
 void MusicDriver::effect(u8 sample, u8 note, u8 volume, u8 channel) {
   std::lock_guard lock(mutex_);
   if (!loaded_ || channel < 1 || channel > 4) return;
-  trigger(ch_[channel - 1u], sample, note, volume ? 0x0c : 0, volume);
+  startEffect(sample, note, volume, channel);
+}
+
+/// The driver's own note on the channel; what it would cut off, if it was another effect still
+/// sounding, plays on to its end on a voice of its own (the oldest such voice gives way). The
+/// same effect again starts over, as in the original: a bonus counted, a bumper hit and hit
+/// again, would otherwise pile up into a blur.
+void MusicDriver::startEffect(u8 sample, u8 note, u8 volume, u8 channel) {
+  Channel& c = ch_[channel - 1u];
+  const bool sounding = c.data && c.position < c.end && c.loops <= 2;  // (one that loops would never end)
+  const bool another = sample != 0 && sample <= 31 && c.data != samples_[sample - 1u].data;
+  if (another && note != 0 && c.byEffect && sounding) {
+    Voice* to = &voices_[0];
+    for (Voice& v : voices_) {
+      if (!v.c.data) {
+        to = &v;
+        break;
+      }
+      if (v.since < to->since) to = &v;
+    }
+    *to = {c, channel <= 2, ++voicesStarted_};
+  }
+  trigger(c, sample, note, volume ? 0x0c : 0, volume);
+  c.byEffect = true;
 }
 
 /// cs:0e3e: a note begins, or an effect on the one that plays.
@@ -321,6 +346,7 @@ void MusicDriver::playRow() {
     const u16 packed = static_cast<u16>(cell[0] | (cell[1] << 8));
     rowSample_ = static_cast<u8>((packed >> 6) & 0x1f);
     trigger(ch_[n], rowSample_, static_cast<u8>(packed & 0x3f), static_cast<u8>((packed >> 11) & 0x0f), cell[2]);
+    if (rowSample_ != 0 || (packed & 0x3f) != 0) ch_[n].byEffect = false;  // the music's own note now
   }
   if (pendingRow_ == 0) {
     rowAt_ += 12;
@@ -349,37 +375,42 @@ void MusicDriver::tick() {
   playRow();
 }
 
+void MusicDriver::mixVoice(Channel& c, bool left, float* out, std::size_t frames, float master) {
+  if (!c.data) return;
+  const float gain = static_cast<float>(c.volume >> 8) / 64.0f / 128.0f * 0.25f * master;
+  for (std::size_t i = 0; i < frames; ++i) {
+    if (c.position >= c.end) {
+      if (c.loops <= 2) return;  // it has played out
+      c.position = static_cast<u16>(c.position - c.end + c.loopStart);
+      if (c.position >= c.end) c.position = c.loopStart;
+    }
+    const float s = static_cast<float>(c.data[c.position]) * gain;  // (the byte it is at, as the driver takes it)
+    if (mono_) {
+      out[i * 2] += s * 0.5f;
+      out[i * 2 + 1] += s * 0.5f;
+    } else {
+      out[i * 2 + (left ? 0 : 1)] += s;
+    }
+    const u32 moved = u32{c.fraction} + (c.step & 0xffff);
+    c.fraction = static_cast<u16>(moved);
+    const u32 position = u32{c.position} + (c.step >> 16) + (moved >> 16);
+    c.position = position > 0xffff ? 0xffff : static_cast<u16>(position);
+  }
+}
+
 void MusicDriver::mix(float* out, std::size_t frames) {
   const float master = static_cast<float>(master_) / 255.0f;
-  for (std::size_t n = 0; n < 4; ++n) {
-    Channel& c = ch_[n];
-    if (!c.data) continue;
-    const float gain = static_cast<float>(c.volume >> 8) / 64.0f / 128.0f * 0.25f * master;
-    const bool left = n < 2;
-    for (std::size_t i = 0; i < frames; ++i) {
-      if (c.position >= c.end) {
-        if (c.loops <= 2) break;  // it has played out
-        c.position = static_cast<u16>(c.position - c.end + c.loopStart);
-        if (c.position >= c.end) c.position = c.loopStart;
-      }
-      const float s = static_cast<float>(c.data[c.position]) * gain;  // (the byte it is at, as the driver takes it)
-      if (mono_) {
-        out[i * 2] += s * 0.5f;
-        out[i * 2 + 1] += s * 0.5f;
-      } else {
-        out[i * 2 + (left ? 0 : 1)] += s;
-      }
-      const u32 moved = u32{c.fraction} + (c.step & 0xffff);
-      c.fraction = static_cast<u16>(moved);
-      const u32 position = u32{c.position} + (c.step >> 16) + (moved >> 16);
-      c.position = position > 0xffff ? 0xffff : static_cast<u16>(position);
-    }
+  for (std::size_t n = 0; n < 4; ++n) mixVoice(ch_[n], n < 2, out, frames, master);
+  for (Voice& v : voices_) {
+    mixVoice(v.c, v.left, out, frames, master);
+    if (v.c.data && v.c.position >= v.c.end) v.c.data = nullptr;  // played out: free again
   }
 }
 
 void MusicDriver::render(float* out, int frames) {
   std::lock_guard lock(mutex_);
   std::size_t left = frames > 0 ? static_cast<std::size_t>(frames) : 0;
+  float* const begin = out;
   std::fill_n(out, left * 2, 0.0f);
   // stopped, or held by this version's pause: nothing sounds, and nothing moves on
   if (!loaded_ || !playing_ || held_) return;
@@ -407,6 +438,8 @@ void MusicDriver::render(float* out, int frames) {
     left -= now;
     tickFrames_ -= static_cast<double>(now);
   }
+  // Overlapping effects can add up past full scale: kept within it.
+  for (float* s = begin; s != out; ++s) *s = std::clamp(*s, -1.0f, 1.0f);
 }
 
 void MusicDriver::pass(double seconds) {

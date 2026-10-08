@@ -106,6 +106,7 @@ online high-score list at the time of writing (17) was played again the same way
 | This version | The original |
 |---|---|
 | The table's sound effects are played a semitone higher. | At the note the table names. |
+| An effect cut off by a different one plays on to its end beside it, on a voice of its own, so two effects can sound at once: a flipper no longer silences a slingshot. The same effect again (a bonus being counted, a bumper hit twice) starts over as in the original. | The table has one channel for its effects, and each new effect stops the one playing. |
 | A jingle starts at the very next tick of the music. | The row of music in progress is played out first: an eighth of a second later. |
 | The table reads the music through a view taken at the start of each frame, which recordings note. | The sound card's interrupt changes the table's memory whenever it comes. |
 
