@@ -641,6 +641,8 @@ void App::update(double dt) {
         for (; replayNext_ < events.size() && events[replayNext_].frame == replayFrame_; ++replayNext_)
           if (events[replayNext_].isKey()) table_->key(events[replayNext_].key(), events[replayNext_].down());
       }
+      // the moment this frame was due, which its sounds keep to however late it is run
+      table_->stampSound(now_ - clock_);
       table_->frame();
       if (replaying_) {
         ++replayFrame_;
@@ -968,6 +970,7 @@ int App::run() {
       // before the part filmed is played through without being drawn.
       const double dt = options_.video ? kFrame : std::min(0.1, std::chrono::duration<double>(nowT - last).count());
       last = nowT;
+      now_ = std::chrono::duration<double>(nowT.time_since_epoch()).count();
       const auto beforeUpdate = clock::now();
       if (options_.video)
         while (running_ && replaying_ && replayFrame_ < static_cast<u32>(options_.videoFrom * 60)) update(kFrame);

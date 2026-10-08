@@ -12,6 +12,13 @@
 // tick of it is played when the card asks for the sound that tick makes, not when the game
 // draws a frame. So it goes on evenly whatever the game is doing, and a frame that takes long
 // does not break it.
+//
+// Two things this version does that the driver does not. An effect is heard a fixed time after
+// the moment it was asked for (stampTime), wherever the card's helpings of sound fall, rather
+// than at the start of the next helping: so every effect is equally late, and a frame run late
+// does not bunch its sounds. And an effect that another would cut off goes on to its end on a
+// voice of its own, so that a flipper no longer silences a slingshot: two effects at most are
+// heard at once, and the same effect again starts over, as in the original.
 #include <array>
 #include <atomic>
 #include <mutex>
@@ -60,6 +67,9 @@ class MusicDriver : public SoundDriver {
   int row() const { return (rowAt_ % 0x300) / 12; }
   /// Function 0x16: fiftieths of a second played.
   u32 ticks() const { return ticks_.load(std::memory_order_acquire); }
+  /// The effects asked for from now on belong to this moment, in seconds of the steady clock:
+  /// each is heard one helping of sound after it. Never told, they are heard at the next helping.
+  void stampTime(double seconds);
 
   /// The sound card asks for the next `frames` of sound, interleaved left and right: the
   /// music is played on for as long as they last.
@@ -86,9 +96,23 @@ class MusicDriver : public SoundDriver {
     u16 offset = 0, table = 0;
     u8 vibratoAt = 0, vibratoSpeed = 0, vibratoDepth = 0, retrigger = 0, retriggerLeft = 0;
     bool vibrated = false;
+    bool byEffect = false;           ///< the sound it plays was an effect, not the music's
     enum class Tick { None, Arpeggio, Portamento, Vibrato, VibratoSlide, Slide, Retrigger } tick = Tick::None;
   };
 
+  struct Asked {  ///< an effect waiting to be heard
+    u8 sample = 0, note = 0, volume = 0, channel = 0;
+    double when = -1;  ///< the moment it belongs to, or -1: at once
+  };
+  struct Voice {  ///< an effect cut off by the next, playing on to its end
+    Channel c;
+    bool left = false;
+    u32 since = 0;
+  };
+
+  void renderAt(float* out, int frames, double now);
+  void startEffect(const Asked& a);
+  void mixVoice(Channel& c, bool left, float* out, std::size_t frames, float master);
   void tick();
   void playRow();
   void trigger(Channel& c, u8 sample, u8 note, u8 effect, u8 param);
@@ -117,6 +141,10 @@ class MusicDriver : public SoundDriver {
   bool placed_ = false;                   ///< the place to go to has been said: nobody is asked about the next
   double tickFrames_ = 0;                 ///< output frames left of the tick being played
   double passed_ = 0;                     ///< time passed without a card, not yet a whole frame of sound
+  std::vector<Asked> asked_;              ///< in the order asked
+  double stamp_ = -1;
+  std::array<Voice, 1> voices_{};  ///< (so two effects at most sound at once)
+  u32 voicesStarted_ = 0;
   std::mutex mutex_;
   std::vector<float> unheard_;
 };

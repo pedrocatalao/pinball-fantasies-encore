@@ -118,6 +118,7 @@ class App {
     int frames = 0;
   } stats_;
   double clock_ = 0;
+  double now_ = 0;  ///< when the frames being run were due, in seconds of the steady clock, as of now
   int frameCounter_ = 0;
   Bytes tablePrg_, tableMod_;  ///< the open table's files, for a table of its own per game
   bool recordingSaved_ = false;  ///< the open table's game has been kept
