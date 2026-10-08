@@ -91,6 +91,9 @@ class App {
   void loadFlipperPictures(int table);
   std::filesystem::path hdPicturePath(const std::string& name) const;
   void setHd(bool on);
+  void setBalancedSound(bool on);
+  /// ARTWORK and AUDIO as they are now, into the options (which the menu shows) and every driver.
+  void showLooks();
   void setBallTrail(bool on);
 
   AppOptions options_;
@@ -110,6 +113,7 @@ class App {
   std::array<int, 2> panelStrip_{};  ///< the size of the picture repeated down the tall menu's panel, if there is one
   u8 ownFlipperPictures_ = 0;  ///< bit per flipper with a picture of its own
   bool ballTrail_ = true;      ///< the fading ghosts behind the ball
+  bool balancedSound_ = true;  ///< this version's mixing rather than the driver's (MusicDriver::setBalanced)
   std::unique_ptr<encore::Front> intro_;
   std::unique_ptr<encore::TableGame> table_;
   int tableIndex_ = 0;  ///< which table is open

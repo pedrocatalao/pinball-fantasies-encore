@@ -71,6 +71,10 @@ constexpr u16 kPage1 = 0xae24;   ///< where the menu's second page is in the car
 constexpr u16 kHigher = 0x49b5;  ///< this version's words among the options, kept where the
 constexpr u16 kFull = 0x49c0;    ///< original has a question this version does not ask (and
 constexpr u16 kTall = 0x49c8;    ///< the answer's place after it)
+constexpr u16 kOriginal = 0x49d0;
+constexpr u16 kRemaster = 0x49da;
+constexpr u16 kBalanced = 0x49e4;
+constexpr int kOptions = 8;      ///< the original's six, and ARTWORK and AUDIO; then saving
 
 }  // namespace
 
@@ -93,6 +97,18 @@ Front::Front(ByteView prg, ByteView module, const Config& config, int returningF
   std::memcpy(&ds(kHigher), "HIGHER", 7);
   std::memcpy(&ds(kFull), "FULL  ", 7);
   std::memcpy(&ds(kTall), "TALL  ", 7);
+  std::memcpy(&ds(kOriginal), "ORIGINAL", 9);
+  std::memcpy(&ds(kRemaster), "REMASTER", 9);
+  std::memcpy(&ds(kBalanced), "BALANCED", 9);
+  // the page as the original has it, its six options, two more of this version's, and the rest
+  auto page = [&](u16 from, u16 to) { optionsPage_.insert(optionsPage_.end(), &ds(from), &ds(from) + (to - from)); };
+  page(0x4e40, 0x4ede);
+  for (const char* label : {"  ARTWORK:", "  AUDIO:"}) {
+    std::string line(label);
+    line.resize(0x18, ' ');
+    optionsPage_.insert(optionsPage_.end(), line.begin(), line.end());
+  }
+  page(0x4ede, 0x4ef8);
 
   // cs:371f: the best scores, written into the two pages that show them
   static constexpr u16 kRows[4] = {0x4f31, 0x4fc1, 0x5051, 0x50e1};
@@ -119,10 +135,10 @@ Front::Front(ByteView prg, ByteView module, const Config& config, int returningF
     const std::size_t before = (0x18 - name.size()) / 2;
     for (u16 i = 0; i < 0x18; ++i) ds(static_cast<u16>(line + i)) = i >= before && i - before < name.size() ? static_cast<u8>(name[i - before]) : ' ';
   }
-  for (int row = 0; row < 6; ++row) {  // cs:404a: the options' words into their page
+  for (int row = 0; row < kOptions; ++row) {  // cs:404a: the options' words into their page
     u16 word = 0;
     optionText(row, word);
-    for (u16 at = static_cast<u16>(0x4e51 + 0x0d + row * 0x18); ds(word) != 0; ++word, ++at) ds(at) = ds(word);
+    for (u8* at = optionWord(row); ds(word) != 0; ++word, ++at) *at = ds(word);
   }
   task_ = main();
 }
@@ -323,16 +339,16 @@ void Front::glyph(u16 y, u16 x, u8 letter) {
 }
 
 /// cs:2cf2: a page of twelve lines, each of up to 24 letters and set in the middle.
-void Front::text(u16 y, u16 page) {
+void Front::text(u16 y, const u8* page) {
   for (int line = 0; line < 12; ++line, y = static_cast<u16>(y + 0x12)) {
     u16 left = 0;  // what the original's count has left when it finds the line's end
     for (u16 i = 0; i < 0x18; ++i)
-      if (ds(static_cast<u16>(page + i)) == 0) {
+      if (page[i] == 0) {
         left = static_cast<u16>(0x18 - i - 1);
         break;
       }
     u16 x = static_cast<u16>(0xa4 + ((0x12 * left) >> 1));
-    for (u16 n = static_cast<u16>(0x18 - left); n > 0; --n, x = static_cast<u16>(x + 0x12)) glyph(y, x, ds(page++));
+    for (u16 n = static_cast<u16>(0x18 - left); n > 0; --n, x = static_cast<u16>(x + 0x12)) glyph(y, x, *page++);
   }
 }
 
@@ -696,7 +712,10 @@ void Front::optionText(int row, u16& words) {
     case 2: words = dsw(static_cast<u16>(0x4e24 + ds(0x49a5) * 2)); break;
     case 3: words = ds(0x49a6) ? 0x4e2e : 0x4e2a; break;
     case 4: words = ds(0x49a7) == 1 ? 0x4e01 : ds(0x49a7) == 2 ? kFull : ds(0x49a7) == 3 ? kTall : 0x4dfa; break;
-    default: words = ds(0x49a8) ? 0x4e38 : 0x4e32; break;
+    case 5: words = ds(0x49a8) ? 0x4e38 : 0x4e32; break;
+    // this version's two
+    case 6: words = options_.originalPictures ? kOriginal : kRemaster; break;
+    default: words = options_.originalSound ? kOriginal : kBalanced; break;
   }
 }
 
@@ -710,6 +729,8 @@ void Front::changeOption(int row) {
     // (and after the original's two sizes of screen, this version's whole table, twice)
     case 4: ds(0x49a7) = ds(0x49a7) >= 3 ? 0 : static_cast<u8>(ds(0x49a7) + 1); break;
     case 5: ds(0x49a8) ^= 1; break;
+    case 6: options_.originalPictures = !options_.originalPictures; break;
+    case 7: options_.originalSound = !options_.originalSound; break;
     default: optionsDone_ = true; break;
   }
   options_.balls = ds(0x49a3) ? 5 : 3;
@@ -741,12 +762,12 @@ Front::Task Front::chooseOptions() {
   optionRow_ = 0;
   for (bool moved = true;;) {
     if (moved) {  // cs:3f5a: the mark beside the row
-      const u16 y = static_cast<u16>((optionRow_ == 6 ? 7 : optionRow_) * 0x12 + 0x32);
+      const u16 y = static_cast<u16>((optionRow_ == kOptions ? kOptions + 1 : optionRow_) * 0x12 + 0x32);
       writeMode(1);
       peek(0x13);
       for (const u16 first : {u16{0x0fb5}, u16{0xbdd9}}) {
         u16 at = first;
-        for (int row = 0; row < 0x8c; ++row, at = static_cast<u16>(at + 80)) fill(at, 3);
+        for (int row = 0; row < 0x8c + 0x24; ++row, at = static_cast<u16>(at + 80)) fill(at, 3);  // (two rows more)
       }
       writeMode_ = 0;
       co_await say(y, 0xaf, 0x4e3e);
@@ -760,20 +781,20 @@ Front::Task Front::chooseOptions() {
     } while (k == 0);
     if (k == 0x01) co_return;
     if (k == 0x50) {
-      optionRow_ = optionRow_ >= 6 ? 0 : optionRow_ + 1;
+      optionRow_ = optionRow_ >= kOptions ? 0 : optionRow_ + 1;
       moved = true;
     } else if (k == 0x48) {
-      optionRow_ = optionRow_ <= 0 ? 6 : optionRow_ - 1;
+      optionRow_ = optionRow_ <= 0 ? kOptions : optionRow_ - 1;
       moved = true;
     } else if (k == 0x39 || k == 0x1c) {
       const int row = optionRow_;
       changeOption(row);
-      if (row < 6) {  // cs:4101: the new word into the page's text, and onto the screen
+      if (row < kOptions) {  // cs:4101: the new word into the page's text, and onto the screen
         u16 words = 0;
         optionText(row, words);
         u16 length = 0;
-        for (u16 at = static_cast<u16>(0x4e51 + 0x0d + row * 0x18); ds(static_cast<u16>(words + length)) != 0; ++length)
-          ds(static_cast<u16>(at + length)) = ds(static_cast<u16>(words + length));
+        for (u8* at = optionWord(row); ds(static_cast<u16>(words + length)) != 0; ++length)
+          at[length] = ds(static_cast<u16>(words + length));
         const u16 x = 0x12 * 0x0d + 0xda;  // (cs:4155; its row times 0x2d00 is of a row already lost)
         const u16 width = static_cast<u16>(((length * 0x12) >> 3) + 2);
         const u16 y = static_cast<u16>(row * 0x12 + 0x32);
@@ -801,7 +822,7 @@ Front::Task Front::optionsMenu() {
   colourSelect_ = 0;
   drawAt_ = kPage1;
   fontAt_ = 0x8c0;
-  text(0x0e, 0x4e40);
+  text(0x0e, optionsPage_.data());
   for (int n = 0; n < 5; ++n) {
     threeColours(4 - n, 5);
     co_await nextFrame();
@@ -810,7 +831,7 @@ Front::Task Front::optionsMenu() {
   co_await nextFrame();
   drawAt_ = 0;
   fontAt_ = 0;
-  text(0x0e, 0x4e40);
+  text(0x0e, optionsPage_.data());
   co_await nextFrame();
   for (int left = 0x28; left > 0; --left) {
     threeColours(0x28 - left, 0x28);
@@ -824,7 +845,7 @@ Front::Task Front::optionsMenu() {
   writeMode_ = 0;
   drawAt_ = kPage1;
   fontAt_ = 0;
-  text(0x0e, 0x4e40);
+  text(0x0e, optionsPage_.data());
 
   co_await chooseOptions();
 
@@ -838,8 +859,8 @@ Front::Task Front::optionsMenu() {
   writeMode_ = 0;
   drawAt_ = kPage1;
   fontAt_ = 0x8c0;
-  text(0x0e, 0x4e40);
-  text(0x0e, 0x4e40);
+  text(0x0e, optionsPage_.data());
+  text(0x0e, optionsPage_.data());
   setStart(kPage1);
   for (int n = 0; n < 0x28; ++n) {
     threeColours(0x27 - n, 0x28);
@@ -850,7 +871,8 @@ Front::Task Front::optionsMenu() {
   splitPalette_ = true;
   showing_ = Showing::Banners;
   if (options_.balls != saved_.balls || options_.angle != saved_.angle || options_.scrollSpeed != saved_.scrollSpeed ||
-      options_.resolution != saved_.resolution || options_.noMusic != saved_.noMusic || options_.mono != saved_.mono) {
+      options_.resolution != saved_.resolution || options_.noMusic != saved_.noMusic || options_.mono != saved_.mono ||
+      options_.originalSound != saved_.originalSound || options_.originalPictures != saved_.originalPictures) {
     saved_ = options_;
     action_.kind = Action::Kind::SaveOptions;
   }

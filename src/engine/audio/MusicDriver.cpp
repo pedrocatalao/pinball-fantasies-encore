@@ -6,6 +6,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstring>
+#include <vector>
 
 namespace encore {
 namespace {
@@ -21,11 +22,79 @@ constexpr u8 kSine[32] = {0x00, 0x18, 0x31, 0x4a, 0x61, 0x78, 0x8d, 0xa1, 0xb4, 
 /// The Amiga's clock, as the driver has it (cs:1001): a period is so many of its beats.
 constexpr u32 kClock = 0x361f0f;
 
+/// The balanced mixing reads a sample between its bytes from the eight around the place: a
+/// sinc, narrowed a little below the sample's own top frequency and shaped by a Blackman-Harris
+/// window, for each of 1024 places between two bytes. Each set of eight adds up to one, so
+/// nothing is louder or softer than the bytes themselves.
+constexpr int kTaps = 8, kPhaseBits = 10;
+/// The balance between the two ways of reading a sample: so much of the nearest byte, as the
+/// driver takes it (its bite, and its grit), the rest from between the bytes (smooth).
+constexpr float kNearest = 0.5f;
+/// How much of a channel is heard on its own side: 1 is the driver's, all of it.
+constexpr float kOwnSide = 0.85f;
+/// The balanced tone: so many decibels more below the bass's corner and above the treble's.
+constexpr double kBassDb = 3.0, kBassHz = 150.0, kTrebleDb = 3.0, kTrebleHz = 6000.0;
+
+/// A shelving filter of the RBJ cookbook, slope 1: low or high, so many dB from a corner.
+void shelve(float& b0, float& b1, float& b2, float& a1, float& a2, bool low, double db, double hz, int rate) {
+  constexpr double pi = 3.14159265358979323846;
+  const double a = std::pow(10.0, db / 40), w = 2 * pi * hz / rate, cw = std::cos(w);
+  const double alpha = std::sin(w) / 2 * std::sqrt(2.0), root = 2 * std::sqrt(a) * alpha;
+  double n0, n1, n2, d0, d1, d2;
+  if (low) {
+    n0 = a * ((a + 1) - (a - 1) * cw + root), n1 = 2 * a * ((a - 1) - (a + 1) * cw), n2 = a * ((a + 1) - (a - 1) * cw - root);
+    d0 = (a + 1) + (a - 1) * cw + root, d1 = -2 * ((a - 1) + (a + 1) * cw), d2 = (a + 1) + (a - 1) * cw - root;
+  } else {
+    n0 = a * ((a + 1) + (a - 1) * cw + root), n1 = -2 * a * ((a - 1) + (a + 1) * cw), n2 = a * ((a + 1) + (a - 1) * cw - root);
+    d0 = (a + 1) - (a - 1) * cw + root, d1 = 2 * ((a - 1) - (a + 1) * cw), d2 = (a + 1) - (a - 1) * cw - root;
+  }
+  b0 = static_cast<float>(n0 / d0), b1 = static_cast<float>(n1 / d0), b2 = static_cast<float>(n2 / d0);
+  a1 = static_cast<float>(d1 / d0), a2 = static_cast<float>(d2 / d0);
+}
+const std::vector<float>& sincTable() {
+  static const std::vector<float> table = [] {
+    constexpr double pi = 3.14159265358979323846, cutoff = 0.95;
+    std::vector<float> t(std::size_t{1} << kPhaseBits << 3);
+    for (int p = 0; p < (1 << kPhaseBits); ++p) {
+      const double f = static_cast<double>(p) / (1 << kPhaseBits);
+      double w[kTaps], sum = 0;
+      for (int k = 0; k < kTaps; ++k) {
+        const double x = (k - kTaps / 2 + 1) - f;  // from the place to this byte
+        const double s = x == 0 ? 1.0 : std::sin(pi * x * cutoff) / (pi * x * cutoff);
+        const double n = (x + kTaps / 2.0) / kTaps;  // 0 to 1 across the eight
+        const double window = 0.35875 - 0.48829 * std::cos(2 * pi * n) + 0.14128 * std::cos(4 * pi * n) -
+                              0.01168 * std::cos(6 * pi * n);
+        w[k] = s * window;
+        sum += w[k];
+      }
+      for (int k = 0; k < kTaps; ++k) t[static_cast<std::size_t>(p * kTaps + k)] = static_cast<float>(w[k] / sum);
+    }
+    return t;
+  }();
+  return table;
+}
+
 u16 big(ByteView b, std::size_t at) { return static_cast<u16>((b[at] << 8) | b[at + 1]); }
 
 }  // namespace
 
-MusicDriver::MusicDriver(int outputRate) : rate_(outputRate) {}
+MusicDriver::MusicDriver(int outputRate) : rate_(outputRate) {
+  shelve(bass_.b0, bass_.b1, bass_.b2, bass_.a1, bass_.a2, true, kBassDb, kBassHz, rate_);
+  shelve(treble_.b0, treble_.b1, treble_.b2, treble_.a1, treble_.a2, false, kTrebleDb, kTrebleHz, rate_);
+}
+
+float MusicDriver::Shelf::run(float x, int side) {
+  const float y = b0 * x + b1 * x1[side] + b2 * x2[side] - a1 * y1[side] - a2 * y2[side];
+  x2[side] = x1[side], x1[side] = x, y2[side] = y1[side], y1[side] = y;
+  return y;
+}
+
+void MusicDriver::tone(float* out, std::size_t frames) {
+  for (std::size_t i = 0; i < frames * 2; ++i) {
+    const int side = static_cast<int>(i & 1);
+    out[i] = treble_.run(bass_.run(out[i], side), side);
+  }
+}
 
 /// cs:071f: the module read in. Its notes are kept three bytes each: the note as a number
 /// (1 to 36, found by its period in the first row of the table; a period that is not there
@@ -219,6 +288,7 @@ void MusicDriver::trigger(Channel& c, u8 sample, u8 note, u8 effect, u8 param) {
       c.period = static_cast<i16>(periodAt(c.note));
       c.step = stepFor(c.period);
       c.position = c.offset;
+      c.started = true;
       c.vibratoAt = 0;
     }
   }
@@ -265,7 +335,10 @@ void MusicDriver::trigger(Channel& c, u8 sample, u8 note, u8 effect, u8 param) {
       break;
     case 0x9:  // from further into the sample
       c.offset = static_cast<u16>(param << 8);
-      if (rowSample_ != 0) c.position = c.offset;
+      if (rowSample_ != 0) {
+        c.position = c.offset;
+        c.started = true;
+      }
       break;
     case 0xa:
       c.tick = Channel::Tick::Slide;
@@ -386,6 +459,7 @@ void MusicDriver::tick() {
 
 void MusicDriver::mixVoice(Channel& c, bool left, float* out, std::size_t frames, float master) {
   if (!c.data) return;
+  if (balanced_.load(std::memory_order_relaxed)) return mixVoiceBalanced(c, left, out, frames, master);
   const float gain = static_cast<float>(c.volume >> 8) / 64.0f / 128.0f * 0.25f * master;
   for (std::size_t i = 0; i < frames; ++i) {
     if (c.position >= c.end) {
@@ -400,6 +474,47 @@ void MusicDriver::mixVoice(Channel& c, bool left, float* out, std::size_t frames
     } else {
       out[i * 2 + (left ? 0 : 1)] += s;
     }
+    const u32 moved = u32{c.fraction} + (c.step & 0xffff);
+    c.fraction = static_cast<u16>(moved);
+    const u32 position = u32{c.position} + (c.step >> 16) + (moved >> 16);
+    c.position = position > 0xffff ? 0xffff : static_cast<u16>(position);
+  }
+}
+
+/// The balanced mixing of one voice (setBalanced): the same steps through the sample as the
+/// driver's, read between the bytes, eased, and spread over both sides.
+void MusicDriver::mixVoiceBalanced(Channel& c, bool left, float* out, std::size_t frames, float master) {
+  const bool loops = c.loops > 2 && c.end > c.loopStart;
+  // the byte at a place before or past the sample's end: its loop, or silence
+  auto at = [&](int i) -> float {
+    if (i < 0) return 0.0f;
+    if (i >= c.end) {
+      if (!loops) return 0.0f;
+      const int span = c.end - c.loopStart;
+      i = c.loopStart + (i - c.end) % span;
+    }
+    return static_cast<float>(c.data[i]);
+  };
+  const float wanted = static_cast<float>(c.volume >> 8) / 64.0f / 128.0f * 0.25f * master;
+  if (std::exchange(c.started, false)) c.level = 0;
+  const float ease = static_cast<float>(1.0 - std::exp(-1.0 / (0.0015 * rate_)));  // a millisecond and a half
+  // mostly on its own side, a little on the other (the driver: all on its own side)
+  const float toLeft = mono_ ? 0.5f : left ? kOwnSide : 1.0f - kOwnSide, toRight = mono_ ? 0.5f : 1.0f - toLeft;
+  const std::vector<float>& sinc = sincTable();
+  for (std::size_t i = 0; i < frames; ++i) {
+    if (c.position >= c.end) {
+      if (!loops) return;  // it has played out
+      c.position = static_cast<u16>(c.position - c.end + c.loopStart);
+      if (c.position >= c.end) c.position = c.loopStart;
+    }
+    const float* taps = &sinc[static_cast<std::size_t>(c.fraction >> (16 - kPhaseBits)) * kTaps];
+    float smooth = 0;
+    for (int t = 0; t < kTaps; ++t) smooth += taps[t] * at(static_cast<int>(c.position) + t - kTaps / 2 + 1);
+    float s = smooth + (static_cast<float>(c.data[c.position]) - smooth) * kNearest;
+    c.level += (wanted - c.level) * ease;
+    s *= c.level;
+    out[i * 2] += s * toLeft;
+    out[i * 2 + 1] += s * toRight;
     const u32 moved = u32{c.fraction} + (c.step & 0xffff);
     c.fraction = static_cast<u16>(moved);
     const u32 position = u32{c.position} + (c.step >> 16) + (moved >> 16);
@@ -475,7 +590,8 @@ void MusicDriver::renderAt(float* out, int frames, double now) {
     done += step;
     tickFrames_ -= static_cast<double>(step);
   }
-  // Overlapping effects can add up past full scale: kept within it.
+  if (balanced_.load(std::memory_order_relaxed)) tone(begin, static_cast<std::size_t>(out - begin) / 2);
+  // Overlapping effects (and the tone) can add up past full scale: kept within it.
   for (float* s = begin; s != out; ++s) *s = std::clamp(*s, -1.0f, 1.0f);
 }
 

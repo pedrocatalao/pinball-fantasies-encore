@@ -65,6 +65,11 @@ The redrawn pictures aren't in the download. The first time you run the game it 
 fetch them (about 31 MB), and later it offers updates when there are new ones. Say no and you
 get the original pictures.
 
+**Balanced sound.** The same music and sound effects, halfway between the 1994 sound driver and a
+smooth modern player: less metallic edge on the samples but still crisp, stereo that's a little
+easier on headphones, and no clicks. AUDIO in the options (or the 0 key) switches back to the
+original sound.
+
 **Four screen sizes,** under Resolution in the options or with R in the pause:
 
 | Size | What you see |
@@ -133,7 +138,8 @@ The original key layout.
 | Key | What it does |
 | --- | --- |
 | <kbd>F9</kbd> | CRT look on or off |
-| <kbd>F10</kbd> | redrawn or original pictures |
+| <kbd>F10</kbd> | redrawn or original pictures (ARTWORK in the options) |
+| <kbd>0</kbd> | balanced or original sound (AUDIO in the options) |
 | <kbd>F11</kbd> | full screen or window (on a Mac, <kbd>⌘</kbd> <kbd>F</kbd> too) |
 
 ## First run on macOS and Windows
