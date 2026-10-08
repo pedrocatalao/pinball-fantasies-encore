@@ -62,6 +62,16 @@ class MusicDriver : public SoundDriver {
   bool holdOnStop = false;
   /// Function 0x18: both sides the same.
   void setMono(bool mono) { mono_ = mono; }
+  /// This version's own mixing, balanced between the driver's and a smooth one, or the
+  /// driver's own. Balanced, a sample is read half from its nearest byte, as the driver takes
+  /// it, and half from between its bytes (an eight-point windowed sinc); each channel is heard
+  /// mostly on its own side and a little on the other; and a note's start or a jump in its
+  /// loudness is eased over a millisecond and a half rather than clicking; and the bass and the
+  /// treble are raised a little. The driver's own
+  /// takes the nearest byte and puts each channel wholly on one side. What plays, and when, is
+  /// the same either way.
+  void setBalanced(bool on) { balanced_.store(on, std::memory_order_relaxed); }
+  bool balanced() const { return balanced_.load(std::memory_order_relaxed); }
   /// Function 0x09: where the music is: its place in the song and the row there.
   int position() const { return position_; }
   int row() const { return (rowAt_ % 0x300) / 12; }
@@ -97,6 +107,8 @@ class MusicDriver : public SoundDriver {
     u8 vibratoAt = 0, vibratoSpeed = 0, vibratoDepth = 0, retrigger = 0, retriggerLeft = 0;
     bool vibrated = false;
     bool byEffect = false;           ///< the sound it plays was an effect, not the music's
+    bool started = false;            ///< its note has just begun (for the balanced mixing)
+    float level = 0;                 ///< the loudness heard, easing to the one asked for (balanced)
     enum class Tick { None, Arpeggio, Portamento, Vibrato, VibratoSlide, Slide, Retrigger } tick = Tick::None;
   };
 
@@ -113,6 +125,7 @@ class MusicDriver : public SoundDriver {
   void renderAt(float* out, int frames, double now);
   void startEffect(const Asked& a);
   void mixVoice(Channel& c, bool left, float* out, std::size_t frames, float master);
+  void mixVoiceBalanced(Channel& c, bool left, float* out, std::size_t frames, float master);
   void tick();
   void playRow();
   void trigger(Channel& c, u8 sample, u8 note, u8 effect, u8 param);
@@ -137,6 +150,17 @@ class MusicDriver : public SoundDriver {
   u16 master_ = 0xff;
   bool held_ = false;                     ///< stopped by this version's pause
   bool playing_ = false, loaded_ = false, mono_ = false;
+  std::atomic<bool> balanced_{true};
+  /// The balanced mixing's tone: a little more bass and treble, the middle as it is. Two
+  /// shelving filters (the RBJ cookbook's) on each side, their state carried from one helping
+  /// of sound to the next.
+  struct Shelf {
+    float b0 = 1, b1 = 0, b2 = 0, a1 = 0, a2 = 0;
+    float x1[2]{}, x2[2]{}, y1[2]{}, y2[2]{};
+    float run(float x, int side);
+  };
+  Shelf bass_, treble_;
+  void tone(float* out, std::size_t frames);
   std::array<Channel, 4> ch_{};
   bool placed_ = false;                   ///< the place to go to has been said: nobody is asked about the next
   double tickFrames_ = 0;                 ///< output frames left of the tick being played

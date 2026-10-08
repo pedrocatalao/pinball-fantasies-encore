@@ -27,6 +27,10 @@ struct Options {
   Resolution resolution = Resolution::Normal;
   bool noMusic = false;
   bool mono = false;
+  // This version's own, kept beside PINBALL.CFG (sfx.txt, hd.txt) rather than in it: the
+  // driver's own mixing rather than the remastered one, the 1994 pictures rather than the HD.
+  bool originalSound = false;
+  bool originalPictures = false;
 };
 
 struct HighScore {

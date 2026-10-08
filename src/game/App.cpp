@@ -264,6 +264,10 @@ bool App::init() {
     if (options_.hd) setHd(*options_.hd);
   }
   {
+    const auto saved = file::readAll(saveDir_ / "sfx.txt");
+    balancedSound_ = !saved || saved->empty() || (*saved)[0] != '0';
+  }
+  {
     const auto saved = file::readAll(saveDir_ / "trail.txt");
     ballTrail_ = options_.trail.value_or(!saved || saved->empty() || (*saved)[0] != '0');
     if (options_.trail) setBallTrail(*options_.trail);
@@ -373,6 +377,26 @@ void App::setHd(bool on) {
   const char c = on ? '1' : '0';
   file::writeAll(saveDir_ / "hd.txt", ByteView(reinterpret_cast<const u8*>(&c), 1));
   log::info(std::string("replacement pictures ") + (on ? "on" : "off"));
+  showLooks();
+}
+
+/// This version's mixing of the music and the sounds, or the driver's, remembered for next time.
+void App::setBalancedSound(bool on) {
+  balancedSound_ = on;
+  const char c = on ? '1' : '0';
+  file::writeAll(saveDir_ / "sfx.txt", ByteView(reinterpret_cast<const u8*>(&c), 1));
+  log::info(std::string("sound ") + (on ? "balanced" : "as the original's driver mixes it"));
+  showLooks();
+}
+
+void App::showLooks() {
+  config_.options.originalSound = !balancedSound_;
+  config_.options.originalPictures = !renderer_.hdEnabled();
+  if (intro_) {
+    intro_->setLooks(config_.options.originalSound, config_.options.originalPictures);
+    intro_->music().setBalanced(balancedSound_);
+  }
+  if (table_) table_->music().setBalanced(balancedSound_);
 }
 
 /// The ball's trail on or off, remembered for next time.
@@ -396,7 +420,9 @@ void App::openIntro(int returningFrom) {
   const auto prg = file::readAll(files_.intro);
   const auto mod = file::readAll(returningFrom < 0 ? files_.introMusic : files_.menuMusic);
   if (!prg || !mod) throw DataError("cannot read INTRO.PRG or its music");
+  showLooks();  // (into the options the menu is made with)
   intro_ = std::make_unique<encore::Front>(*prg, *mod, config_, returningFrom);
+  showLooks();
   intro_->setPanelStrip(panelStrip_[0], panelStrip_[1]);
   resizeFrame(encore::Front::kWidth, intro_->height(), 1.0);
   audio_.setSource([f = intro_.get()](float* out, int frames) { f->sound(out, frames); });
@@ -428,6 +454,7 @@ void App::openTable(int index, const encore::Recording* recording) {
     setup.seed = static_cast<u64>(std::chrono::steady_clock::now().time_since_epoch().count());
   }
   table_ = std::make_unique<encore::TableGame>(tablePrg_, tableMod_, index, setup);
+  showLooks();
   if (recording) table_->playBack(recording);
   // A game played back is the recording's, not one to keep or send.
   recordingSaved_ = recording != nullptr;
@@ -538,6 +565,7 @@ void App::newGame() {
   setup.seed = static_cast<u64>(std::chrono::steady_clock::now().time_since_epoch().count());
   audio_.setSource({});
   table_ = std::make_unique<encore::TableGame>(tablePrg_, tableMod_, index, setup);
+  showLooks();
   audio_.setSource([t = table_.get()](float* out, int frames) { t->sound(out, frames); });
   recordingSaved_ = false;
 }
@@ -596,6 +624,11 @@ void App::handleKey(const SDL_Event& e) {
     if (renderer_.hasHdPictures()) setHd(!renderer_.hdEnabled());
     return;
   }
+  // and the sound's, beside them: 0, which nothing in the game uses
+  if (e.type == SDL_EVENT_KEY_DOWN && e.key.key == SDLK_0) {
+    setBalancedSound(!balancedSound_);
+    return;
+  }
   // While paused, beside the lamps on F7: the ball's trail, for looking at it either way.
   if (e.type == SDL_EVENT_KEY_DOWN && e.key.key == SDLK_F8 && table_ && table_->paused()) {
     setBallTrail(!ballTrail_);
@@ -631,6 +664,9 @@ void App::update(double dt) {
         case Kind::SaveOptions:
           config_.options = intro_->options();
           Config::saveOptions(saveDir_, config_.options);
+          // and this version's two, as the page left them
+          if (config_.options.originalSound == balancedSound_) setBalancedSound(!config_.options.originalSound);
+          if (config_.options.originalPictures == renderer_.hdEnabled()) setHd(!config_.options.originalPictures);
           break;
         case Kind::Quit: running_ = false; return;
         case Kind::None: break;
@@ -659,6 +695,7 @@ void App::update(double dt) {
       // A recording's table has the recording's options and high scores: none are kept.
       if (table_->optionsChanged() && !fromReplay_) {
         config_.options = table_->options();
+        showLooks();  // (the table's copy is from when it opened)
         Config::saveOptions(saveDir_, config_.options);
       }
       if (table_->highScoresChanged() && !fromReplay_) {
@@ -667,6 +704,7 @@ void App::update(double dt) {
       }
       if (table_->left()) {
         if (!fromReplay_) config_.options = table_->options();
+        showLooks();
         openIntro(index);
         return;
       }
@@ -797,7 +835,7 @@ bool App::offerArt() {
       if (event.type == SDL_EVENT_QUIT) return false;
       windowEvent(event);
     }
-    if (waited > 0.3) drawWaiting(waited, "LOOKING FOR HD GFX ART");
+    if (waited > 0.3) drawWaiting(waited, "LOOKING FOR REMASTERED ARTWORK");
   }
   const auto set = artCheck_.get();
   if (!set) return true;
@@ -822,8 +860,8 @@ bool App::offerArt() {
   }
   if (declinedArt(saveDir_) >= set->version) return true;
 
-  const bool wanted = have ? askYesNo({"UPDATE THE", "HD GFX ART?", megabytes(bytes)})
-                           : askYesNo({"DOWNLOAD THE", "HD GFX ART?", megabytes(bytes)});
+  const bool wanted = have ? askYesNo({"UPDATE THE", "REMASTERED ARTWORK?", megabytes(bytes)})
+                           : askYesNo({"DOWNLOAD THE", "REMASTERED ARTWORK?", megabytes(bytes)});
   if (!wanted) {
     declineArt(saveDir_, set->version);
     log::info("HD pictures: version " + std::to_string(set->version) + " turned down");
@@ -853,7 +891,7 @@ bool App::offerArt() {
     }
     const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - began).count();
     const u64 done = progress.done;
-    drawWaiting(seconds, "DOWNLOADING HD GFX ART",
+    drawWaiting(seconds, "DOWNLOADING REMASTERED ARTWORK",
                 progress.cancel ? std::string("STOPPING") : (std::to_string(done / 1048576) + " OF " + megabytes(bytes)));
     SDL_Delay(16);
   }

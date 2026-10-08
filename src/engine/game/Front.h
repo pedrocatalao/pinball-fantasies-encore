@@ -10,6 +10,7 @@
 #include <array>
 #include <coroutine>
 #include <exception>
+#include <string>
 #include <vector>
 
 #include "core/Keys.h"
@@ -53,6 +54,13 @@ class Front {
   void setPanelStrip(int width, int height) { stripWidth_ = width, stripHeight_ = height; }
   int height() const { return tall() ? 2 * kHeight : kHeight; }
 
+  /// ARTWORK and AUDIO as they are now, whatever the options page last said (the keys change them
+  /// anywhere): the page shows them so the next time it opens.
+  void setLooks(bool originalSound, bool originalPictures) {
+    options_.originalSound = saved_.originalSound = originalSound;
+    options_.originalPictures = saved_.originalPictures = originalPictures;
+  }
+  MusicDriver& music() { return music_; }
   void sound(float* out, int frames) { music_.render(out, frames); }
   void noSound() { music_.pass(1.0 / 60); }
 
@@ -149,7 +157,8 @@ class Front {
   u16 unpackChunky(u16 segment, u16 row, u16 rows);          ///< cs:4a39, cs:4db0
   void sendColours(u8 first, u16 picture);                   ///< cs:1ed1
   void glyph(u16 y, u16 x, u8 letter);                       ///< cs:2c37
-  void text(u16 y, u16 page);                                ///< cs:2cf2
+  void text(u16 y, u16 page) { text(y, &ds(page)); }        ///< cs:2cf2
+  void text(u16 y, const u8* page);
   void string(u16 y, u16 x, u16 text);                       ///< cs:43cf
   void heading(u16 from, u16 to);                            ///< cs:13ea
   void forget(u16 at, u8 dots = 0xff);                       ///< those dots are no longer a picture's
@@ -210,6 +219,11 @@ class Front {
   i16 idle_ = 0;                   ///< cs:1d47
   bool wantOptions_ = false;       ///< cs:486d
   int optionRow_ = 0;              ///< cs:3f4b
+  /// The options page's text: the original's (ds:4e40), with this version's two more options
+  /// under its six, which the original's place has no room for. A line of an option is 0x18
+  /// letters, its word from the 0x10th.
+  std::vector<u8> optionsPage_;
+  u8* optionWord(int row) { return &optionsPage_[static_cast<std::size_t>(0x1e + row * 0x18)]; }
   bool optionsDone_ = false;       ///< cs:4265
   int launch_ = -1;                ///< a table asked for while a page was shown
   // for the tall screen: what the part beside the panel shows, and which rows of the
