@@ -17,11 +17,10 @@ bool AudioDevice::open(int sampleRate) {
   spec.format = SDL_AUDIO_F32;
   spec.channels = 2;
   spec.freq = sampleRate;
-  // The card is asked to take 1024 samples at a time, about 21 ms: a sound the game starts
-  // waits for the next helping and then for it to play out, so less would be heard sooner, but
-  // Linux's sound servers crackle at a quarter of it. An environment variable of the same name
-  // still wins.
-  SDL_SetHint(SDL_HINT_AUDIO_DEVICE_SAMPLE_FRAMES, "1024");
+  // The card is asked to take 512 samples at a time, about 11 ms: every sound the game makes is
+  // heard one helping after it is asked for, so less would be heard sooner, but Linux's sound
+  // servers crackle at half of it. An environment variable of the same name still wins.
+  SDL_SetHint(SDL_HINT_AUDIO_DEVICE_SAMPLE_FRAMES, "512");
   stream_ = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, &AudioDevice::callback, this);
   if (!stream_) {
     log::error(std::string("SDL_OpenAudioDeviceStream: ") + SDL_GetError());
