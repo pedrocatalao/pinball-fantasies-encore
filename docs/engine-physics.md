@@ -254,8 +254,9 @@ sub-step:
 ## Finding these structures in each of the four binaries
 
 The four table programs were compiled separately, so every structure sits at a different
-address in each one. Hard-coding Party Land's addresses works only for Party Land. The
-resolver in `src/engine/data/TableLayout.cpp` locates each structure by evidence instead:
+address in each one. Hard-coding Party Land's addresses works only for Party Land; each
+structure can instead be found by evidence, as an earlier model of the ball in this project did
+(the engine now needs none of it: it runs each table's own code on its own data):
 
 | Structure | How it is found |
 | --- | --- |
@@ -289,21 +290,6 @@ Every table shares the same lower flipper geometry, pivots at (95, 536) and (204
 21 frames. The third flipper differs: Party Land has an upper left flipper at (27, 234),
 Speed Devils an upper right one at (188, 198), Billion Dollar Gameshow one at (286, 182),
 and Stones 'n Bones has none.
-
-## Observed behaviour of the implementation
-
-`encore-simulate` runs a table headlessly and prints the ball's path. With a full plunger stroke:
-
-| Table | Highest point reached | Outcome |
-| --- | --- | --- |
-| Party Land | y = 14 | drains after about 5 seconds of play |
-| Speed Devils | y = 58 | stays in play |
-| Billion Dollar Gameshow | y = 81 | drains after about 5 seconds |
-| Stones 'n Bones | y = 15 | returns to the shooter lane and rests there |
-
-Every table now sends the ball the full length of the shooter lane. The last two need the
-one-way gate at the lane exit, which the original patches into the mask, to stop the ball rolling
-back down the lane.
 
 ## Physics maps
 
