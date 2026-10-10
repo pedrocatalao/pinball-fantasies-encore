@@ -149,6 +149,7 @@ class Front {
   Task optionsMenu();              ///< cs:43f4
   Task chooseOptions();            ///< cs:3f4d
   Task say(u16 y, u16 x, u16 text);  ///< cs:42de
+  Task turnOptions(int page);      ///< the other page of options in place of the one shown
   Task closePage();                ///< cs:3529
   void frameCallback();            ///< cs:2bb2
   void midFrameCallback();         ///< cs:2821
@@ -167,7 +168,6 @@ class Front {
   void rubOutText(bool both);                                ///< cs:2684, cs:26b1
   void optionText(int row, u16& text);                       ///< cs:41b2 and its like
   void changeOption(int row);
-  void showOption(int row);                                  ///< cs:4101
   u8 takeKey() {
     const u8 k = key_;
     key_ = 0;
@@ -220,11 +220,17 @@ class Front {
   i16 idle_ = 0;                   ///< cs:1d47
   bool wantOptions_ = false;       ///< cs:486d
   int optionRow_ = 0;              ///< cs:3f4b
-  /// The options page's text: the original's (ds:4e40), with this version's two more options
-  /// under its six, which the original's place has no room for. A line of an option is 0x18
-  /// letters, its word from the 0x10th.
-  std::vector<u8> optionsPage_;
-  u8* optionWord(int row) { return &optionsPage_[static_cast<std::size_t>(0x1e + row * 0x18)]; }
+  /// The options' two pages of text: the original's (ds:4e40), its six options and a line more
+  /// to turn to the other, which has this version's options, as the original's has no room for
+  /// them. A line of an option is 0x18 letters, its word from the 0x10th; the first is the third
+  /// line, after the heading and an empty one, on both pages.
+  std::array<std::vector<u8>, 2> optionsPages_;
+  int optionsShown_ = 0;           ///< which of them
+  static constexpr int kFirstOptions = 6;  ///< the options on the first page; the rest on the other
+  u8* optionWord(int row) {
+    const int page = row < kFirstOptions ? 0 : 1, line = row - (page ? kFirstOptions : 0);
+    return &optionsPages_[static_cast<std::size_t>(page)][static_cast<std::size_t>(0x1e + line * 0x18)];
+  }
   bool optionsDone_ = false;       ///< cs:4265
   int launch_ = -1;                ///< a table asked for while a page was shown
   // for the tall screen: what the part beside the panel shows, and which rows of the
