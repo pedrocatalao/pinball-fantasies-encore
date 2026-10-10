@@ -14,7 +14,8 @@ the score count. The score on the board is the one the replay arrives at.
   `optimize-art.sh` and checked by `check-png.py`.
 
 The Worker, its database, the recordings (a few KB each) and the game's table files (about
-3 MB, readable only with the verifier's token) all fit in Cloudflare's free plan.
+3 MB, readable only with the verifier's token) fit in Cloudflare's free plan; the HD pictures'
+R2 bucket wants a payment method on the account, though they stay inside its free allowance.
 
 ## Setting it up
 
@@ -63,7 +64,20 @@ the permission **Actions: Read and write**, and as long an expiry as it allows. 
 npx wrangler secret put GITHUB_DISPATCH_TOKEN
 ```
 
-Without it, or once it has expired, games simply wait for the schedule.
+Without it, or once it has expired, games simply wait for the schedule. A burst of games
+starts the job once a minute at most.
+
+## Limits
+
+Anyone can send a game, and a player is only a token the game makes up, so the limits that
+matter hold for everyone together. A request is checked to be a recording (its magic, format,
+and at most 256 KB) before anything is written: a copy, or anything refused, makes no player. One
+address may send 10 games a minute (Cloudflare's rate limiter, `[[ratelimits]]` in
+`wrangler.toml`: nothing of the address is kept); at most 200 games wait to be checked, and at
+most 60 players are made in an hour, from everyone; a player may have 50 games waiting and send
+300 a day. Past any of these the answer is 429, and the game keeps the recording and sends it
+later. Once a day (`[triggers]` in `wrangler.toml`) the recordings of games rejected more than
+30 days ago are deleted; the games stay, with why they were rejected.
 
 After a change to the Worker or a new migration:
 
