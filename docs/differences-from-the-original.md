@@ -120,6 +120,7 @@ online high-score list at the time of writing (17) was played again the same way
 | Where the plunger has moved down from, the artwork shows. | The plunger leaves a dark line there, seen on Speed Devils as each ball rolls onto it. |
 | The table's top row of dots is the artwork's. | The program rubs it out as the table starts, and a black line shows whenever the screen is at the top. |
 | A ball coming off a ramp is drawn as on the ramp until it is out from under it, or has gone a little way on. | The ball is drawn under the playfield's cover from the moment it is moved over from the ramps, which can be a little early: at the top of Stones 'n Bones' plunger rail, the ramp's middle wire is drawn over it. |
+| A new ball is drawn rolling out from under the apron into the plunger lane, over the few frames it waits there. | It is hidden under the apron and then, in one frame, shown in the lane: where the artwork does not cover that place (Speed Devils), it is suddenly there. |
 
 ## Speeds and screen sizes
 

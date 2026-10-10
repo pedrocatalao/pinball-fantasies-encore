@@ -84,6 +84,11 @@ void TableScreen::started(Engine& e) {
 }
 
 void TableScreen::follow(Engine& e) {
+  followLayer(e);
+  followServe(e);
+}
+
+void TableScreen::followLayer(Engine& e) {
   // (how far from where the engine changed over, in dots, and for how long: a ball that rolls
   // on under another ramp is soon taken as under it, at whatever speed it goes)
   constexpr int kFarthest = 48, kLongest = 60;
@@ -110,6 +115,32 @@ void TableScreen::follow(Engine& e) {
   }
   drawnOnRamps_ = shown.ramps;
   stillOnRamps_ = 0;
+}
+
+/// The original serves a ball by keeping it hidden under the apron beside the plunger lane, and
+/// then, in one frame, putting it in the lane a little to the right and showing it there, where
+/// it waits a few frames before it drops: on a table whose artwork does not cover that place, it
+/// is suddenly there. The picture has it roll out from under the apron instead, over the frames
+/// it waits: drawn short of where it is, and less so each frame (and hidden where the apron
+/// still covers it), until it is drawn where it is just as it moves.
+void TableScreen::followServe(Engine& e) {
+  constexpr int kFrames = 5;  // the frames a served ball waits before it drops
+  const Engine::Shown& shown = e.shown();
+  const bool hidden = e.B(at::ballHidden) == 0xff;
+  // (served: hidden the frame before, shown now, the same row and a little to the right)
+  const int jump = shown.ballX - servedFrom_[0];
+  if (wasHidden_ && !hidden && shown.ballY == servedFrom_[1] && jump >= 8 && jump <= 24) {
+    slideFrom_ = static_cast<float>(-jump);
+    sliding_ = 0;
+  }
+  if (sliding_ >= 0 && !e.isPaused()) ++sliding_;
+  // (done, or the ball moved on, or was put away again)
+  if (sliding_ > kFrames || hidden || shown.ballY != servedFrom_[1]) sliding_ = -1;
+  // short of where it is by what is left of the way, the most of it covered first
+  const float left = sliding_ < 0 ? 0.0f : 1.0f - static_cast<float>(sliding_) / static_cast<float>(kFrames + 1);
+  slideX_ = slideFrom_ * left * left;
+  wasHidden_ = hidden;
+  if (hidden) servedFrom_ = {shown.ballX, shown.ballY};
 }
 
 /// What the artwork covers of the ball. The original hides the ball dot by dot, and where
@@ -646,7 +677,7 @@ void TableScreen::draw(Engine& e, u8* frame, const View& v, HdFrame* hd) const {
     for (int y = 0; y < ball_.height; ++y)
       for (int x = 0; x < ball_.width; ++x) {
         if (!ball_.covers(x, y)) continue;
-        const int px = shown.ballX + x, py = shown.ballY + y;
+        const int px = shown.ballX + static_cast<int>(std::lround(slideX_)) + x, py = shown.ballY + y;
         // (a ball leaving by the bottom is still drawn in the few rows past the picture that a
         // shaken table shows)
         if (px < 0 || px >= kWidth || py < 0 || py >= TableData::kHeight + 4) continue;
@@ -677,7 +708,8 @@ void TableScreen::draw(Engine& e, u8* frame, const View& v, HdFrame* hd) const {
     if (ball_.valid() && !waiting) {
       // (a ball in play is drawn lifted with a shaken table, as the original draws it: cs:4140)
       const float lift = e.B(at::ballHidden) == 0xff ? 0.0f : static_cast<float>(e.W(at::nudgeLift).s());
-      const float bx = static_cast<float>(e.W(at::ballX).s()), by = static_cast<float>(e.W(at::ballY).s()) + lift;
+      // (short of where it is while a served ball rolls out: followServe)
+      const float bx = static_cast<float>(e.W(at::ballX).s()) + slideX_, by = static_cast<float>(e.W(at::ballY).s()) + lift;
       // What the artwork covers of the ball is said wherever the ball is drawn, the trail
       // included, and a little wider than the ball itself: a dot's cover is read smoothly,
       // from the four around it, and without that the outermost ring of the ball would read

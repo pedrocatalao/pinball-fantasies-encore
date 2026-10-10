@@ -60,13 +60,15 @@ class TableScreen {
 
   /// Once the table has started: works out what the high-resolution pictures need.
   void started(Engine& engine);
-  /// Once a frame: which of the two maps of what hides the ball the picture goes by. The
+  /// Once a frame: where and how the picture shows the ball, where it differs from the engine
+  /// (only the picture: the game is the same). A served ball is shown rolling into the plunger
+  /// lane rather than appearing there (followServe). And which of the two maps of what hides the
+  /// ball the picture goes by (followLayer). The
   /// engine changes the ball over from the ramps to the playfield where its walls must change,
   /// which can be a little before the ball is out from under the ramp it leaves (at the top of
   /// Stones 'n Bones' plunger rail, the ramp's middle wire would be drawn over it); the
   /// picture goes on as if on the ramps until the playfield's map hides no more of the ball
-  /// than the ramps' does, or the ball has gone a little way on. Only the picture: the game is
-  /// the same.
+  /// than the ramps' does, or the ball has gone a little way on.
   void follow(Engine& engine);
 
   /// Each flipper as it lies at rest, cut out of the playfield's picture; and whether it is
@@ -91,6 +93,8 @@ class TableScreen {
     float axisX = 0, axisY = 0;  ///< what it turns about, in the rectangle's dots
   };
   void turnFlipper(Engine& engine, Bytes& picture, u16 record, u16 was, u16 now) const;
+  void followLayer(Engine& engine);
+  void followServe(Engine& engine);
   void buildCover(Engine& engine);
   void buildFlipperArt(Engine& engine);
   void buildLampAreas(Engine& engine);
@@ -105,6 +109,11 @@ class TableScreen {
   bool drawnOnRamps_ = false;       ///< the picture hides the ball as on the ramps (follow())
   int stillOnRamps_ = 0;            ///< frames it has gone on doing so after the engine changed over
   std::array<int, 2> changedAt_{};  ///< where the ball was drawn when the engine changed over
+  // A served ball rolling out from under the apron (followServe).
+  bool wasHidden_ = false;           ///< the ball was put away the frame before
+  std::array<int, 2> servedFrom_{};  ///< where it was put away
+  int sliding_ = -1;                 ///< frames into the roll, or -1
+  float slideFrom_ = 0, slideX_ = 0; ///< how far short of it the roll starts, and is drawn now
   std::vector<FlipperArt> art_;
   Bytes lampAreas_;                 ///< per dot of the playfield: the lamp it belongs to, or 0
   std::vector<u16> lamps_;          ///< each lamp's record of colours in the table's memory
