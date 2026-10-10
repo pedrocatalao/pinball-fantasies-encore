@@ -82,7 +82,7 @@ in the folder SDL keeps for the platform (`~/Library/Application Support`, `~/.l
 | `src/engine/game` | A table as the game plays it, recordings of games, and the slides and the menu |
 | `src/engine/data`, `src/engine/sim` | Reading a table's pictures and masks; an earlier model of the ball, kept for its tests |
 | `src/game` | Application shell and the options and high-score files |
-| `assets/hd` | Redrawn, high-resolution pictures drawn in place of the originals: the intro's slides, the menu's side panel, table banners and high-score heading, each table's playfield lit and unlit, the flippers and the ball |
+| `assets/hd` | Redrawn, high-resolution pictures drawn in place of the originals: the intro's slides, the menu's side panel, table banners and high-score heading, each table's playfield lit and unlit, the flippers and the ball; and, per table, what hides the ball on the playfield and on the ramps (`hides_ball<n>_playfield.png`, `hides_ball<n>_ramps.png`: black hides it, white shows it, pure red is clear plastic it is seen through greyed) |
 | `assets/app` | The application icon, built into `icon.icns` at build time |
 | `src/gfx`, `shaders` | Indexed framebuffer, palette, OpenGL renderer; `post.frag` is the hook for CRT-style effects and is hot-reloaded |
 | `src/platform` | SDL3 window, audio device, finding the game files, fetching over HTTP |

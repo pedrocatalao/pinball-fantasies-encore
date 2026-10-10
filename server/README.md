@@ -11,7 +11,8 @@ one the replay arrives at.
 - `migrations/`: the D1 database.
 - `verify.sh`: the checking, as the job runs it.
 - `upload-game-files.sh`: puts the game's table files on the server, for the job.
-- `publish-art.sh`: publishes the HD pictures the game fetches (see below).
+- `publish-art.sh`: publishes the HD pictures the game fetches (see below), made smaller by
+  `optimize-art.sh` and checked by `check-png.py`.
 
 The Worker, its database, the recordings (a few KB each) and the game's table files (about
 3 MB, readable only with the verifier's token) all fit in Cloudflare's free plan.
@@ -90,12 +91,17 @@ npx wrangler deploy
 
 A GitHub Actions job (`.github/workflows/publish-art.yml`) publishes them whenever `assets/hd`
 changes on the default branch, or by hand from the Actions tab; it needs the same token as a
-repository **secret** `PUBLISH_TOKEN`, beside the `ENCORE_API` variable. To publish from your
-own machine instead, from the repository root:
+repository **secret** `PUBLISH_TOKEN`, beside the `ENCORE_API` variable. The pictures are
+published made smaller without a pixel changed (`optimize-art.sh`, with oxipng): each copy is
+checked to be one the game reads and the same picture (`check-png.py`), or the original goes
+instead, and `font.png` always goes as it is. The pictures in `assets/hd` stay as drawn. To
+publish from your own machine instead, from the repository root, with oxipng 10.2.1 (the
+job's, so that the same pictures make the same files) and python3 with numpy and Pillow:
 
 ```bash
+server/optimize-art.sh /tmp/hd
 ENCORE_API=https://thebestpinball.com PUBLISH_TOKEN=<the secret> \
-  server/publish-art.sh
+  server/publish-art.sh /tmp/hd
 ```
 
 Only the pictures the server does not have are uploaded. When the pictures need code that

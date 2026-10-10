@@ -353,6 +353,22 @@ void App::loadFlipperPictures(int table) {
   }
   if (own) log::info("flipper pictures: " + std::to_string(own) + " of " + std::to_string(cutOut.size()));
 
+  // What hides the ball, drawn to the replacement playfield, if there is a picture of it: on
+  // the playfield and on the ramps, each on its own. Black hides the ball, white does not, and
+  // pure red is clear plastic, which shows it greyed.
+  renderer_.clearCoverPictures();
+  for (int layer = 0; layer < 2; ++layer) {
+    const auto path = hdPicturePath("hides_ball" + std::to_string(table + 1) + (layer ? "_ramps" : "_playfield") + ".png");
+    if (!present(path)) continue;
+    const auto cover = loadImageFile(path);
+    if (!cover) {
+      log::error("cannot read " + path.string());
+      continue;
+    }
+    renderer_.setCoverPicture(layer, cover->width, cover->height, cover->pixels.data(), TableData::kWidth, TableData::kHeight);
+    log::info("what hides the ball: " + path.filename().string());
+  }
+
   // The ball: its own picture if there is one, and otherwise the original's.
   std::optional<RgbaImage> ball;
   for (const std::string& name : {"ball" + std::to_string(table + 1) + ".png", std::string("ball.png")}) {

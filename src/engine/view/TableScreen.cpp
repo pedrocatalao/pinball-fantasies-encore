@@ -83,6 +83,35 @@ void TableScreen::started(Engine& e) {
   buildLampAreas(e);
 }
 
+void TableScreen::follow(Engine& e) {
+  // (how far from where the engine changed over, in dots, and for how long: a ball that rolls
+  // on under another ramp is soon taken as under it, at whatever speed it goes)
+  constexpr int kFarthest = 48, kLongest = 60;
+  const Engine::Shown& shown = e.shown();
+  if (!shown.ramps && drawnOnRamps_ && !hides_[0].empty()) {
+    if (stillOnRamps_ == 0) changedAt_ = {shown.ballX, shown.ballY};
+    const int dx = shown.ballX - changedAt_[0], dy = shown.ballY - changedAt_[1];
+    // (the dots of the ball the playfield's map hides and the ramps' does not: the ramp left)
+    bool under = stillOnRamps_ < kLongest && dx * dx + dy * dy <= kFarthest * kFarthest;
+    if (under) {
+      under = false;
+      for (int y = 0; y < ball_.height && !under; ++y)
+        for (int x = 0; x < ball_.width && !under; ++x) {
+          const int px = shown.ballX + x, py = shown.ballY + y;
+          if (!ball_.covers(x, y) || px < 0 || px >= kWidth || py < 0 || py >= TableData::kHeight) continue;
+          const std::size_t i = static_cast<std::size_t>(py) * kWidth + px;
+          under = hides_[0][i] && !hides_[1][i];
+        }
+    }
+    if (under) {
+      ++stillOnRamps_;
+      return;
+    }
+  }
+  drawnOnRamps_ = shown.ramps;
+  stillOnRamps_ = 0;
+}
+
 /// What the artwork covers of the ball. The original hides the ball dot by dot, and where
 /// something is to be seen through (the criss-cross rail on Stones 'n Bones) hides every
 /// other dot; for a picture of the ball at any size that is told as how much of the ball
@@ -613,7 +642,7 @@ void TableScreen::draw(Engine& e, u8* frame, const View& v, HdFrame* hd) const {
   // the ball, but for the dots of it that something on the table passes over (cs:95b0)
   if (ball_.valid() && !hd) {
     const u16 maps = e.S(0x2f94);
-    const u16 map = shown.ramps ? 0x5f80 : 0x0100;
+    const u16 map = drawnOnRamps_ ? 0x5f80 : 0x0100;
     for (int y = 0; y < ball_.height; ++y)
       for (int x = 0; x < ball_.width; ++x) {
         if (!ball_.covers(x, y)) continue;
@@ -653,7 +682,8 @@ void TableScreen::draw(Engine& e, u8* frame, const View& v, HdFrame* hd) const {
       // included, and a little wider than the ball itself: a dot's cover is read smoothly,
       // from the four around it, and without that the outermost ring of the ball would read
       // half its cover from dots nothing was said of.
-      const std::size_t layer = e.B(at::layer) != 0 ? 1 : 0;
+      const std::size_t layer = drawnOnRamps_ ? 1 : 0;
+      hd->ballLayer = static_cast<u8>(layer);
       constexpr int kMargin = 3;
       auto cover = [&](float fx, float fy) {
         const int px = static_cast<int>(std::lround(fx)), py = static_cast<int>(std::lround(fy));
