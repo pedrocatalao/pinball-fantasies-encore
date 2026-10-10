@@ -63,13 +63,25 @@ export interface Env {
   GITHUB_DISPATCH_TOKEN?: string;
   /** The repository the job is in (wrangler.toml [vars]). */
   GITHUB_REPO: string;
+  /** Cloudflare's count of games sent from each address in the last minute (wrangler.toml
+   *  [[ratelimits]]); nothing of the address is kept here. Absent when tried locally. */
+  UPLOADS?: RateLimit;
 }
 
 /** Recording formats a verifier can play (Recording::kFormat in the game). */
 const FORMATS = [3];
-const MAX_RECORDING = 512 * 1024;
+/** A recording is a few KB; a game of three hours, the most the verifier plays, well under this. */
+const MAX_RECORDING = 256 * 1024;
 const MAX_PENDING_PER_PLAYER = 50;
 const MAX_RUNS_PER_DAY = 300;
+// Limits on everyone together, which a player's own cannot be (a new token is a new player):
+// past them the game is told to try later (429), and keeps its recording until then.
+/** Games waiting to be checked, from everyone. */
+const MAX_PENDING = 200;
+/** Players made in an hour. */
+const MAX_NEW_PLAYERS_PER_HOUR = 60;
+/** How long a rejected game's recording is kept, for looking into why, before it is deleted. */
+const KEEP_REJECTED = 30 * 86400;
 /** As the game lets them be typed: three capitals or spaces. */
 const INITIALS = /^[A-Z ]{3}$/;
 const TAG = /^[0-9a-f]{5}$/;
@@ -123,13 +135,18 @@ interface Player {
   tag: string;
 }
 
-/** The installation a token belongs to, made the first time it is seen, with a tag of its own. */
-async function playerOf(env: Env, req: Request): Promise<Player | null> {
-  const token = bearer(req);
-  if (!token) return null;
-  const tokenHash = await sha256(new TextEncoder().encode(token));
-  const known = await env.DB.prepare("SELECT id, tag FROM players WHERE token_hash = ?").bind(tokenHash).first<Player>();
-  if (known) return known;
+/** The installation a token's hash belongs to, if it has sent a game before. */
+async function knownPlayer(env: Env, tokenHash: string): Promise<Player | null> {
+  return await env.DB.prepare("SELECT id, tag FROM players WHERE token_hash = ?").bind(tokenHash).first<Player>();
+}
+
+/** A new installation, with a tag of its own: made only with a new game to keep for it. "busy"
+ *  when too many have been made in the last hour, null if no free tag was found. */
+async function makePlayer(env: Env, tokenHash: string): Promise<Player | null | "busy"> {
+  const recent = await env.DB.prepare("SELECT COUNT(*) AS n FROM players WHERE created_at > ?")
+    .bind(now() - 3600)
+    .first<{ n: number }>();
+  if ((recent?.n ?? 0) >= MAX_NEW_PLAYERS_PER_HOUR) return "busy";
   for (let tries = 0; tries < 20; ++tries) {
     const tag = [...crypto.getRandomValues(new Uint8Array(3))].map((b) => b.toString(16).padStart(2, "0")).join("").slice(0, 5);
     const made = await env.DB.prepare(
@@ -139,7 +156,7 @@ async function playerOf(env: Env, req: Request): Promise<Player | null> {
       .first<Player>();
     if (made) return made;
     // The tag was taken, or the same token arrived twice at once.
-    const raced = await env.DB.prepare("SELECT id, tag FROM players WHERE token_hash = ?").bind(tokenHash).first<Player>();
+    const raced = await knownPlayer(env, tokenHash);
     if (raced) return raced;
   }
   return null;
@@ -197,12 +214,17 @@ async function playerPage(env: Env, tag: string): Promise<Response> {
 
 // ---- games ---------------------------------------------------------------------------------
 
-/** Takes a recording to be checked. Only what can be seen without playing it is looked at. */
-/** Starts the checking job now. A second start while it runs waits behind it (the job's
- *  concurrency group), so the game sent meanwhile is checked too; any more are dropped by GitHub,
- *  which is harmless. What goes wrong is only logged: the schedule still comes round. */
+/** Starts the checking job now, once a minute at most: a game sent within a minute of another
+ *  is checked by the same run, or by the next. A second start while it runs waits behind it (the
+ *  job's concurrency group), so the game sent meanwhile is checked too; any more are dropped by
+ *  GitHub, which is harmless. What goes wrong is only logged: the schedule still comes round. */
 async function startVerifier(env: Env): Promise<void> {
   if (!env.GITHUB_DISPATCH_TOKEN || !env.GITHUB_REPO) return;
+  const t = now();
+  const claimed = await env.DB.prepare("UPDATE meta SET value = ?1 WHERE key = 'verifier_started' AND value <= ?1 - 60")
+    .bind(t)
+    .run();
+  if (!claimed.meta.changes) return;
   const r = await fetch(`https://api.github.com/repos/${env.GITHUB_REPO}/actions/workflows/verify-scores.yml/dispatches`, {
     method: "POST",
     headers: {
@@ -216,14 +238,23 @@ async function startVerifier(env: Env): Promise<void> {
   if (!r.ok) console.error(`starting the checking job: ${r.status} ${await r.text()}`);
 }
 
+/** Takes a recording to be checked. Only what can be seen without playing it is looked at, and
+ *  all of that before anything is written: a request that is no recording makes no player. */
 async function sendRun(env: Env, req: Request, ctx: ExecutionContext): Promise<Response> {
-  const player = await playerOf(env, req);
-  if (!player) return fail(401, "a player token is needed");
+  if (!bearer(req)) return fail(401, "a player token is needed");
+  if (Number(req.headers.get("Content-Length") ?? 0) > MAX_RECORDING) return fail(413, "not a recording, or too big");
   const data = new Uint8Array(await req.arrayBuffer());
   if (data.length < 15 || data.length > MAX_RECORDING) return fail(413, "not a recording, or too big");
   if (String.fromCharCode(...data.slice(0, 4)) !== "PFRP") return fail(400, "not a recording");
   const format = data[4] | (data[5] << 8);
   if (!FORMATS.includes(format)) return fail(400, "a recording from a version this server cannot check");
+  const address = req.headers.get("CF-Connecting-IP");
+  if (env.UPLOADS && address && !(await env.UPLOADS.limit({ key: address })).success)
+    return fail(429, "too many games at once; try again later");
+  const waiting = await env.DB.prepare("SELECT COUNT(*) AS n FROM runs WHERE status = 'pending'").first<{ n: number }>();
+  if ((waiting?.n ?? 0) >= MAX_PENDING) return fail(429, "too many games waiting; try again later");
+  const tokenHash = await sha256(new TextEncoder().encode(bearer(req)!));
+  const known = await knownPlayer(env, tokenHash);
   const hash = await sha256(data);
   // The same file again, or another file with the same seed: the second is the first game
   // changed where the score does not depend on it (the initials, say), which only the player who
@@ -235,16 +266,22 @@ async function sendRun(env: Env, req: Request, ctx: ExecutionContext): Promise<R
     .bind(hash, seed)
     .first<{ id: number; player_id: number; status: string }>();
   if (existing) {
-    if (existing.player_id !== player.id) return fail(409, "already sent by someone else");
-    return json({ id: existing.id, status: existing.status, tag: player.tag });
+    if (!known || existing.player_id !== known.id) return fail(409, "already sent by someone else");
+    return json({ id: existing.id, status: existing.status, tag: known.tag });
   }
-  const counts = await env.DB.prepare(
-    `SELECT SUM(status = 'pending') AS pending, SUM(submitted_at > ?2) AS today FROM runs WHERE player_id = ?1`,
-  )
-    .bind(player.id, now() - 86400)
-    .first<{ pending: number | null; today: number | null }>();
-  if ((counts?.pending ?? 0) >= MAX_PENDING_PER_PLAYER || (counts?.today ?? 0) >= MAX_RUNS_PER_DAY)
-    return fail(429, "too many games waiting; try again later");
+  if (known) {
+    const counts = await env.DB.prepare(
+      `SELECT SUM(status = 'pending') AS pending, SUM(submitted_at > ?2) AS today FROM runs WHERE player_id = ?1`,
+    )
+      .bind(known.id, now() - 86400)
+      .first<{ pending: number | null; today: number | null }>();
+    if ((counts?.pending ?? 0) >= MAX_PENDING_PER_PLAYER || (counts?.today ?? 0) >= MAX_RUNS_PER_DAY)
+      return fail(429, "too many games waiting; try again later");
+  }
+  // (a player is made only now, with a new game to keep: a copy, or anything refused, makes none)
+  const player = known ?? (await makePlayer(env, tokenHash));
+  if (player === "busy") return fail(429, "too many new players just now; try again later");
+  if (!player) return fail(503, "no room for a new player just now; try again later");
   const version = (req.headers.get("X-Encore-Version") ?? "").slice(0, 32) || null;
   // The game and its recording together or not at all (a batch is one transaction). The same
   // file or seed sent at the same moment by someone else meets the database's own uniqueness,
@@ -616,7 +653,22 @@ async function publishArt(env: Env, req: Request): Promise<Response> {
 
 // ---- routing -------------------------------------------------------------------------------
 
+/** Once a day (wrangler.toml [triggers]): the recordings of games rejected more than
+ *  KEEP_REJECTED ago are deleted. The games stay, with why they were rejected. */
+async function cleanUp(env: Env): Promise<void> {
+  const r = await env.DB.prepare(
+    "DELETE FROM replays WHERE run_id IN (SELECT id FROM runs WHERE status = 'rejected' AND verified_at < ?)",
+  )
+    .bind(now() - KEEP_REJECTED)
+    .run();
+  if (r.meta.changes) console.log(`deleted the recordings of ${r.meta.changes} rejected games`);
+}
+
 export default {
+  async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(cleanUp(env));
+  },
+
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
     const url = new URL(req.url);

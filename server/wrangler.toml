@@ -37,3 +37,14 @@ directory = "../site"
 binding = "ASSETS"
 # The videos go through the Worker, which answers for parts of them (src/index.ts, media()).
 run_worker_first = ["/media/*"]
+
+# How many games one address may send in a minute (src/index.ts, sendRun), counted by Cloudflare:
+# nothing of the address is kept by the Worker. The namespace is any number of this account's own.
+[[ratelimits]]
+name = "UPLOADS"
+namespace_id = "1001"
+simple = { limit = 10, period = 60 }
+
+# Once a day: the recordings of games rejected long ago are deleted (src/index.ts, cleanUp).
+[triggers]
+crons = ["17 4 * * *"]
