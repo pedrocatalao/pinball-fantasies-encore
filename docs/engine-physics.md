@@ -80,7 +80,8 @@ of 1/2048 of a turn.
 | 0 | (8, 0) | 0x000 | 22 | (-8, 0) | 0x400 |
 | 11 | (0, 8) | 0x200 | 33 | (0, -8) | 0x600 |
 
-The full 44-entry table is in `re/agent_physics/probes.py` and is mirrored at `ds:0x67e0`.
+The full 44-entry table is at `ds:0x67e0` (and in `re/agent_physics/probes.py`, local
+reverse-engineering scratch that is not in the repository).
 
 The surface normal is the mean angle of the hit probes, with a wrap correction when the hits
 straddle angle zero. Fewer than one effective hit means no collision.
@@ -254,7 +255,7 @@ sub-step:
 
 The four table programs were compiled separately, so every structure sits at a different
 address in each one. Hard-coding Party Land's addresses works only for Party Land. The
-resolver in `src/data/TableLayout.cpp` locates each structure by evidence instead:
+resolver in `src/engine/data/TableLayout.cpp` locates each structure by evidence instead:
 
 | Structure | How it is found |
 | --- | --- |

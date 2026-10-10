@@ -11,11 +11,9 @@ with every lamp lit, and with every lamp off; the two must line up exactly).
 Each picture must show the whole original picture; bands of white or transparency around it
 are trimmed, and transparency is flattened onto black. The picture is then resized to <n>
 times the original's size (3 by default), or kept at its own size along a side where it is
-smaller than that. The results go to assets/hd/<name>.png in this repository, which the
-build puts into the application.
-
-A picture in the preferences folder takes the place of the application's own, which is
-handy for trying one out (--out "~/Library/Application Support/Encore/Pinball Fantasies/hd").
+smaller than that. The results go to assets/hd/<name>.png in this repository, which is
+published to the server for every game to fetch once it reaches main (server/README.md); to
+see them before that, run the game with --hd-dir assets/hd.
 
 Needs Pillow, from the tools virtual environment, which the script switches to by itself.
 """

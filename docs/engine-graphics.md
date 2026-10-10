@@ -1,7 +1,8 @@
 # Graphics: screen layout, animation formats, dot-matrix display
 
 Recovered from the original binary. Working decoders that produced verified images live in
-`re/agent_gfx/` (`dmd2055.py` for the display bank, `flippers.py` for the table animations).
+`re/agent_gfx/` (`dmd2055.py` for the display bank, `flippers.py` for the table animations):
+local reverse-engineering scratch, not in the repository, as everything under `re/` but its tools.
 
 ## Screen layout
 
@@ -154,7 +155,9 @@ original realised all of this by writing the CRTC start address, so no pixels we
 ## Palette
 
 Each playfield strip carries a 256-colour map and sixteen colour-cycling ranges in Deluxe Paint
-format. The remake loads the first strip's map and animates the cycles from the range definitions.
+format. The engine does not use the ranges: the colours shown are the 256 the table program itself
+sets in the video card's palette, frame by frame (`Engine::colours`, read by
+`TableScreen::colours`), cycling included.
 
 ## Presenting the picture
 

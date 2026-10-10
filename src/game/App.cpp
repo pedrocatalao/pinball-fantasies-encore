@@ -215,9 +215,7 @@ bool App::init() {
   }
   // A trial: files offered on the first run and unpacked where this version keeps what is
   // its own -- the same folder as PINBALL.CFG, the high scores and the remembered settings,
-  // whatever the platform calls it. The archive holds an hd folder, which is the first place
-  // the replacement pictures are looked for, so what is fetched now is used by the loading
-  // below. Turning the offer down ends the game.
+  // whatever the platform calls it. Turning the offer down ends the game.
   {
     // The letters come with this version, not from the original, so the question can be put
     // before a single game file is there, or any HD picture. The fetched set has them too, so

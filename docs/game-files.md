@@ -23,5 +23,5 @@ fb7bfd1c96a462cb03999d2e6f843a20d3de69ba05fcbd384a9f1c131b9a563a  TABLE3.MOD
 `INTRO.MOD` is needed as well but is not checked: the DOS game rewrites it as part of its
 copy protection, so no two copies agree.
 
-Where the files go, and how to point the game at another folder, is in the
-[README](../README.md).
+Where the files go is in the [README](../README.md); to point the game at another folder,
+`--data <dir>` ([building.md](building.md#command-line)).

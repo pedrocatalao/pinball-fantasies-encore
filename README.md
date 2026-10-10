@@ -38,7 +38,7 @@ It needs exactly the 1994 disk release, since it reads data from fixed places in
 Every file is checked when the game starts, and other releases are refused.
 [docs/game-files.md](docs/game-files.md) lists the files and their checksums.
 
-After you confirm you own a legal copy of the game, it will download the right files for you the first time it runs from a preservation website.
+The first time it runs, once you confirm you own a legal copy of the game, it downloads the right files for you from a preservation website.
 They're kept in a `FANTASY` folder here:
 
 | System | Folder |
@@ -62,7 +62,7 @@ filters, no AI. Because the new pictures line up exactly with the old ones, F10 
 them at any moment, even in the middle of a ball.
 
 The redrawn pictures aren't in the download. The first time you run the game it offers to
-fetch them (about 31 MB), and later it offers updates when there are new ones. Say no and you
+fetch them (about 30 MB), and later it offers updates when there are new ones. Say no and you
 get the original pictures.
 
 **Balanced sound.** The same music and sound effects, halfway between the 1994 sound driver and a
@@ -77,7 +77,7 @@ original sound.
 | Normal | 240 rows, as in 1994: the screen follows the ball |
 | High | 350 rows, as in 1994: more of the table, still following the ball |
 | Full | the whole table at once, flat pixels, for a normal screen |
-| Tall | the whole table with square pixels, for a widescreen monitor turned 90º |
+| Tall | the whole table with square pixels, for a widescreen monitor turned 90° |
 
 **Online high scores.** When you get a high score, the game asks if you want to send it. The
 server replays the game from its recording before it counts, so every score on
