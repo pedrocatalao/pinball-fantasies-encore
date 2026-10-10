@@ -10,6 +10,10 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "Build type" FORCE)
 endif()
 
+# Windows: Microsoft's C++ runtime is built into each program, so that nothing has to be
+# installed beside it (a fresh Windows has no Visual C++ redistributable).
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+
 # Only what checks recorded games, with no window, sound or graphics, so nothing but a C++
 # compiler and CMake is needed: the server's verifier builds this way.
 option(ENCORE_TOOLS_ONLY "Build only the core, the command-line tools and the tests" OFF)
@@ -94,7 +98,7 @@ if(APPLE)
 endif()
 if(WIN32)
   enable_language(RC)
-  target_sources(pinball-fantasies PRIVATE packaging/windows/pinball.rc)
+  target_sources(pinball-fantasies PRIVATE packaging/windows/pinball.rc packaging/windows/utf8.manifest)
   # the resource compiler does not say what the .rc pulls in
   set_source_files_properties(packaging/windows/pinball.rc PROPERTIES OBJECT_DEPENDS
     "${CMAKE_SOURCE_DIR}/packaging/windows/pinball.ico")
@@ -191,6 +195,10 @@ add_executable(encore-tests
 target_compile_definitions(encore-tests PRIVATE ENCORE_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 target_link_libraries(encore-tests PRIVATE encore_core)
 add_test(NAME unit COMMAND encore-tests)
+# (as the game, so that its test of names in UTF-8 tests what the game does)
+if(WIN32)
+  target_sources(encore-tests PRIVATE packaging/windows/utf8.manifest)
+endif()
 
 add_executable(encore-play tools/play.cpp)
 target_link_libraries(encore-play PRIVATE encore_engine)

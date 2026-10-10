@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!-- Text in the program is UTF-8, as SDL gives it (folders, dropped files, the command line):
+     this tells Windows (10 1903 and later) to take it as such where the program makes a path or
+     opens a file from text, instead of in the language's own code page, so that a user folder
+     like C:\Users\José is found. -->
+<assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings>
+      <activeCodePage xmlns="http://schemas.microsoft.com/SMI/2019/WindowsSettings">UTF-8</activeCodePage>
+    </windowsSettings>
+  </application>
+</assembly>
