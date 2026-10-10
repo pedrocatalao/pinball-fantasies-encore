@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <string_view>
 
 #include "core/Error.h"
 
@@ -76,7 +77,7 @@ constexpr u16 kRemaster = 0x49da;
 constexpr u16 kBalanced = 0x49e4;
 constexpr u16 kBottom = 0x49ee;  ///< (past the question's words too, which are not shown either)
 constexpr u16 kTop = 0x49f5;
-constexpr int kOptions = 9;      ///< the original's six, and ARTWORK, AUDIO and DOT MATRIX; then saving
+constexpr int kOptions = 9;      ///< the original's six, and ARTWORK, AUDIO and DOT MATRIX
 
 }  // namespace
 
@@ -104,16 +105,26 @@ Front::Front(ByteView prg, ByteView module, const Config& config, int returningF
   std::memcpy(&ds(kBalanced), "BALANCED", 9);
   std::memcpy(&ds(kBottom), "BOTTOM", 7);
   std::memcpy(&ds(kTop), "TOP   ", 7);
-  // the page as the original has it, its six options, three more of this version's, and the
-  // rest: without the empty line before it, as the page shows twelve lines and no more
-  auto page = [&](u16 from, u16 to) { optionsPage_.insert(optionsPage_.end(), &ds(from), &ds(from) + (to - from)); };
-  page(0x4e40, 0x4ede);
-  for (const char* label : {"  ARTWORK:", "  AUDIO:", "  DOT MATRIX:"}) {
-    std::string line(label);
-    line.resize(0x18, ' ');
-    optionsPage_.insert(optionsPage_.end(), line.begin(), line.end());
-  }
-  page(0x4edf, 0x4ef8);
+  // the first page as the original has it, its six options, with a line to turn to the other
+  // before saving; the other with a heading, this version's options and a line to turn back.
+  // Each has twelve lines, an empty one a nought, as the page shows twelve and no more
+  const auto copy = [&](std::vector<u8>& to, u16 from, u16 end) { to.insert(to.end(), &ds(from), &ds(from) + (end - from)); };
+  const auto addLine = [](std::vector<u8>& to, std::string text) {
+    text.resize(0x18, ' ');
+    to.insert(to.end(), text.begin(), text.end());
+  };
+  std::vector<u8>& firstPage = optionsPages_[0];
+  std::vector<u8>& morePage = optionsPages_[1];
+  copy(firstPage, 0x4e40, 0x4edf);  // the heading, an empty line, the six options and an empty line
+  addLine(firstPage, "  MORE OPTIONS");
+  copy(firstPage, 0x4edf, 0x4ef8);  // saving, and an empty line
+  for (const char c : std::string_view("MORE OPTIONS")) morePage.push_back(static_cast<u8>(c));
+  morePage.insert(morePage.end(), {0, 0});
+  for (const char* label : {"  ARTWORK:", "  AUDIO:", "  DOT MATRIX:"}) addLine(morePage, label);
+  morePage.push_back(0);
+  addLine(morePage, "  BACK");
+  copy(morePage, 0x4edf, 0x4ef8);
+  morePage.insert(morePage.end(), {0, 0, 0});
 
   // cs:371f: the best scores, written into the two pages that show them
   static constexpr u16 kRows[4] = {0x4f31, 0x4fc1, 0x5051, 0x50e1};
@@ -763,19 +774,22 @@ Front::Task Front::say(u16 y, u16 x, u16 words) {
   string(y, x, words);
 }
 
-/// cs:3f4d: up and down among the options, enter or space to change one.
+/// cs:3f4d: up and down among the options, enter or space to change one. Under a page's options
+/// (this version's) a line to turn to the other page, then saving.
 Front::Task Front::chooseOptions() {
   optionsDone_ = false;
   optionRow_ = 0;
   for (bool moved = true;;) {
+    // the page's options, among all of them, and the rows: theirs, turning, saving
+    const int first = optionsShown_ ? kFirstOptions : 0, count = optionsShown_ ? kOptions - kFirstOptions : kFirstOptions;
+    const auto rowY = [&](int row) { return static_cast<u16>((row < count ? row : row + 1) * 0x12 + 0x32); };  // (the empty line before turning)
     if (moved) {  // cs:3f5a: the mark beside the row
-      // (saving is right under the last option: the empty line there made room for this version's)
-      const u16 y = static_cast<u16>(optionRow_ * 0x12 + 0x32);
+      const u16 y = rowY(optionRow_);
       writeMode(1);
       peek(0x13);
-      for (const u16 first : {u16{0x0fb5}, u16{0xbdd9}}) {
-        u16 at = first;
-        for (int row = 0; row < 0x8c + 0x24; ++row, at = static_cast<u16>(at + 80)) fill(at, 3);  // (two rows more)
+      for (const u16 at0 : {u16{0x0fb5}, u16{0xbdd9}}) {
+        u16 at = at0;
+        for (int row = 0; row < 0x8c + 0x12; ++row, at = static_cast<u16>(at + 80)) fill(at, 3);  // (a row more)
       }
       writeMode_ = 0;
       co_await say(y, 0xaf, 0x4e3e);
@@ -789,13 +803,19 @@ Front::Task Front::chooseOptions() {
     } while (k == 0);
     if (k == 0x01) co_return;
     if (k == 0x50) {
-      optionRow_ = optionRow_ >= kOptions ? 0 : optionRow_ + 1;
+      optionRow_ = optionRow_ >= count + 1 ? 0 : optionRow_ + 1;
       moved = true;
     } else if (k == 0x48) {
-      optionRow_ = optionRow_ <= 0 ? kOptions : optionRow_ - 1;
+      optionRow_ = optionRow_ <= 0 ? count + 1 : optionRow_ - 1;
       moved = true;
     } else if (k == 0x39 || k == 0x1c) {
-      const int row = optionRow_;
+      if (optionRow_ == count) {  // the other page: the mark on its first option, or back on turning
+        co_await turnOptions(1 - optionsShown_);
+        optionRow_ = optionsShown_ ? 0 : kFirstOptions;
+        moved = true;
+        continue;
+      }
+      const int row = optionRow_ < count ? first + optionRow_ : kOptions;
       changeOption(row);
       if (row < kOptions) {  // cs:4101: the new word into the page's text, and onto the screen
         u16 words = 0;
@@ -805,7 +825,7 @@ Front::Task Front::chooseOptions() {
           at[length] = ds(static_cast<u16>(words + length));
         const u16 x = 0x12 * 0x0d + 0xda;  // (cs:4155; its row times 0x2d00 is of a row already lost)
         const u16 width = static_cast<u16>(((length * 0x12) >> 3) + 2);
-        const u16 y = static_cast<u16>(row * 0x12 + 0x32);
+        const u16 y = rowY(optionRow_);
         writeMode(1);
         peek(0x13);
         for (const u16 page : {u16{0}, kPage1}) {
@@ -819,8 +839,29 @@ Front::Task Front::chooseOptions() {
   }
 }
 
+/// This version's: the other page of options written in place of the one shown, on each page of
+/// the card while the other is shown, as a word is (cs:42de).
+Front::Task Front::turnOptions(int page) {
+  optionsShown_ = page;
+  for (const auto& [shown, at] : {std::pair{u16{0}, kPage1}, std::pair{kPage1, u16{0}}}) {
+    co_await nextFrame();
+    setStart(shown);
+    co_await nextFrame();
+    writeMode(1);
+    peek(0x13);
+    u16 to = static_cast<u16>(at + 0x14);
+    for (int row = 0; row < 0xf0; ++row, to = static_cast<u16>(to + 80)) fill(to, 0x37);  // (as cs:26b1)
+    writeMode_ = 0;
+    drawAt_ = at;
+    fontAt_ = 0;
+    text(0x0e, optionsPages_[static_cast<std::size_t>(page)].data());
+  }
+  drawAt_ = 0;
+}
+
 /// cs:43f4: the options, in place of the banners.
 Front::Task Front::optionsMenu() {
+  optionsShown_ = 0;
   scrollerText_ = 0x2906;
   co_await rubOutBanners();
   showing_ = Showing::Page;
@@ -830,7 +871,7 @@ Front::Task Front::optionsMenu() {
   colourSelect_ = 0;
   drawAt_ = kPage1;
   fontAt_ = 0x8c0;
-  text(0x0e, optionsPage_.data());
+  text(0x0e, optionsPages_[static_cast<std::size_t>(optionsShown_)].data());
   for (int n = 0; n < 5; ++n) {
     threeColours(4 - n, 5);
     co_await nextFrame();
@@ -839,7 +880,7 @@ Front::Task Front::optionsMenu() {
   co_await nextFrame();
   drawAt_ = 0;
   fontAt_ = 0;
-  text(0x0e, optionsPage_.data());
+  text(0x0e, optionsPages_[static_cast<std::size_t>(optionsShown_)].data());
   co_await nextFrame();
   for (int left = 0x28; left > 0; --left) {
     threeColours(0x28 - left, 0x28);
@@ -853,7 +894,7 @@ Front::Task Front::optionsMenu() {
   writeMode_ = 0;
   drawAt_ = kPage1;
   fontAt_ = 0;
-  text(0x0e, optionsPage_.data());
+  text(0x0e, optionsPages_[static_cast<std::size_t>(optionsShown_)].data());
 
   co_await chooseOptions();
 
@@ -867,8 +908,8 @@ Front::Task Front::optionsMenu() {
   writeMode_ = 0;
   drawAt_ = kPage1;
   fontAt_ = 0x8c0;
-  text(0x0e, optionsPage_.data());
-  text(0x0e, optionsPage_.data());
+  text(0x0e, optionsPages_[static_cast<std::size_t>(optionsShown_)].data());
+  text(0x0e, optionsPages_[static_cast<std::size_t>(optionsShown_)].data());
   setStart(kPage1);
   for (int n = 0; n < 0x28; ++n) {
     threeColours(0x27 - n, 0x28);
