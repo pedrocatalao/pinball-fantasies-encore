@@ -28,9 +28,10 @@ Bytes read(const std::string& name) {
 }
 
 /// One game from the key that starts it, played by keys at random, the same for a seed: the
-/// table is made, the game started at once, and it is played to its end or for `frames`.
+/// table is made, the game started at once (after `typedFirst`, typed a letter at a time, a
+/// space for each *), and it is played to its end or for `frames`.
 Recording play(int table, int frames, unsigned seed, const HighScores& best = Config::defaults().highScores[0],
-               const std::function<void(TableGame&)>& each = {}) {
+               const std::function<void(TableGame&)>& each = {}, std::string_view typedFirst = {}) {
   TableGame::Setup setup;
   setup.options.balls = 3;
   setup.highScores = best;
@@ -41,6 +42,10 @@ Recording play(int table, int frames, unsigned seed, const HighScores& best = Co
   unsigned rng = seed * 2654435761u + 1;
   auto random = [&] { rng = rng * 1664525u + 1013904223u; return rng >> 16; };
   bool left = false, right = false, pulled = false;
+  for (const char c : typedFirst) {
+    const Key k = c == '*' ? Key::Space : static_cast<Key>(static_cast<int>(Key::A) + (c - 'A'));
+    game.key(k, true), game.frame(), game.key(k, false), game.frame();
+  }
   game.key(Key::Enter, true), game.key(Key::Enter, false);
   for (int f = 0; f < frames && game.recording().games.empty() && !game.left(); ++f) {
     if (each) each(game);
@@ -157,6 +162,57 @@ TEST(cheated_games_are_not_counted) {
     CHECK(!v.ok);
     CHECK(v.reason == "played with cheats");
   }
+}
+
+// The same cheats typed into the recording itself, before the key that starts the game, as a
+// recording made by hand could have them: the header says nothing of them, but the table has
+// them as the game starts.
+TEST(cheats_typed_before_the_start_are_not_counted) {
+  if (!haveData()) return;
+  const Bytes prg = read("TABLE2.PRG"), mod = read("TABLE2.MOD");
+  for (const std::string_view word : {"EARTHQUAKE", "SNAIL", "EXTRA*BALLS"}) {
+    const Recording typed = play(1, 60000, 5, Config::defaults().highScores[0], {}, word);
+    CHECK(typed.games.size() == 1);
+    CHECK(!typed.cheated());
+    const Verdict v = verify(prg, mod, typed);
+    CHECK(!v.ok);
+    CHECK(v.reason == "played with cheats");
+  }
+  // (a word typed and taken back is no cheat)
+  CHECK(verify(prg, mod, play(1, 60000, 5, Config::defaults().highScores[0], {}, "EARTHQUAKEFAIR*PLAY")).ok);
+}
+
+// The angle can be changed while paused; a game counts as played at the gentlest it had.
+TEST(a_game_counts_at_the_gentlest_angle_it_had) {
+  if (!haveData()) return;
+  const Bytes prg = read("TABLE2.PRG"), mod = read("TABLE2.MOD");
+  // keys pressed a few frames apart, from the frame given
+  auto changes = [](int from, std::vector<Key> keys) {
+    return [from, keys, f = 0](TableGame& t) mutable {
+      const int at = f++ - from;
+      if (at >= 0 && at % 10 == 0 && static_cast<std::size_t>(at / 10) < keys.size()) {
+        const Key k = keys[static_cast<std::size_t>(at / 10)];
+        t.key(k, true), t.key(k, false);
+      }
+    };
+  };
+  const Recording honest = play(1, 60000, 5);
+  CHECK(honest.games.size() == 1);
+  if (honest.games.empty()) return;
+  CHECK_EQ(verify(prg, mod, honest).angle, 1);  // high, as the options have it
+  // (a third of the way into the game)
+  const int during = static_cast<int>(honest.games[0].endFrame / 3);
+  // high, paused for higher and then low, and back to high
+  const Recording low = play(1, 60000, 5, Config::defaults().highScores[0],
+                             changes(during, {Key::P, Key::A, Key::A, Key::P, Key::P, Key::A, Key::P}));
+  CHECK(low.games.size() == 1);
+  CHECK(low.options.angle == Angle::High);
+  const Verdict v = verify(prg, mod, low);
+  CHECK(v.ok);
+  CHECK_EQ(v.angle, 0);
+  // high, and then higher: high is the gentlest
+  const Recording higher = play(1, 60000, 5, Config::defaults().highScores[0], changes(during, {Key::P, Key::A, Key::P}));
+  CHECK_EQ(verify(prg, mod, higher).angle, 1);
 }
 
 // A flipper's replacement picture turns about the point its own artwork hinges on, which is

@@ -179,7 +179,7 @@ std::string Recording::fileName(const std::string& when, const std::string& tag)
   return name + score + "-" + when + ".RPL";
 }
 
-Recording replay(ByteView prg, ByteView module, const Recording& recording) {
+Recording replay(ByteView prg, ByteView module, const Recording& recording, HowPlayed* how) {
   TableGame::Setup setup;
   setup.options = recording.options;
   setup.highScores = recording.highScores;
@@ -194,6 +194,7 @@ Recording replay(ByteView prg, ByteView module, const Recording& recording) {
       if (recording.events[next].isKey()) t.key(recording.events[next].key(), recording.events[next].down());
     t.frame();
   }
+  if (how) *how = {t.playedWithCheats(), t.gentlestAngle()};
   return t.recording();
 }
 
@@ -214,9 +215,14 @@ Verdict verify(ByteView prg, ByteView module, const Recording& rec, const Verify
     if (e.frame > rec.frames || (i && e.frame < rec.events[i - 1].frame)) return refuse("events out of order");
   }
 
-  v.replayed = replay(prg, module, rec);
+  HowPlayed how;
+  v.replayed = replay(prg, module, rec, &how);
   if (v.replayed.games.size() != 1) return refuse("not one whole game");
   if (v.replayed.games[0].abandoned) return refuse("quit before the end");
+  // (the header says what the player's game had; the replay what the table really did: a
+  // recording made by hand can type a cheat's word before the start)
+  if (how.cheats) return refuse("played with cheats");
+  v.angle = how.angle;
   v.claimsMatch = v.replayed.games == rec.games && v.replayed.events == rec.events;
   v.ok = true;
   return v;

@@ -61,6 +61,13 @@ class TableGame {
   int ball() const { return engine_->B(0x33dc); }
   Bcd score(int player) const;
 
+  /// How the game this table recorded was really played, as the engine had it from its first
+  /// frame to its last, whatever the recording's header says: whether a cheat was on (a word
+  /// typed before the start), and the gentlest angle it was played at (the angle can be changed
+  /// while paused). Until a game has started, no cheat and no angle (-1).
+  bool playedWithCheats() const { return cheats_; }
+  int gentlestAngle() const { return gentlest_; }
+
   /// The options as they now are, the ones changed while paused among them.
   Options options() const;
   HighScores highScores() const;
@@ -131,6 +138,8 @@ class TableGame {
   std::unique_ptr<TableScreen> screen_;
   u32 frames_ = 0;
   bool playing_ = false;
+  bool cheats_ = false;  ///< playedWithCheats()
+  int gentlest_ = -1;    ///< gentlestAngle()
   HighScores bestAtStart_{};
   Recording recording_;
   std::string failure_;
