@@ -85,7 +85,8 @@ class App {
   void saveRecording();
   bool windowEvent(const SDL_Event& e);
   void handleKey(const SDL_Event& e);
-  void resizeFrame(int width, int height, double pixelAspect);
+  /// The frame's size, and how many of its last rows are a table's dot display (0: none).
+  void resizeFrame(int width, int height, double pixelAspect, int displayRows = 0);
   void setCrt(bool on);
   void loadHdPictures();
   void loadFlipperPictures(int table);

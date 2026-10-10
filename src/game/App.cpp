@@ -421,9 +421,10 @@ void App::setBallTrail(bool on) {
   log::info(std::string("ball trail ") + (on ? "on" : "off"));
 }
 
-void App::resizeFrame(int width, int height, double pixelAspect) {
+void App::resizeFrame(int width, int height, double pixelAspect, int displayRows) {
   if (frame_.width() != width || frame_.height() != height) frame_ = Framebuffer(width, height);
   renderer_.setPixelAspect(options_.squarePixels ? 1.0 : pixelAspect);
+  renderer_.setDisplayRows(displayRows);
 }
 
 void App::openIntro(int returningFrom) {
@@ -475,7 +476,7 @@ void App::openTable(int index, const encore::Recording* recording) {
   replaying_ = fromReplay_ = recording != nullptr;
   replayNext_ = 0;
   replayFrame_ = 0;
-  resizeFrame(320, table_->screenHeight(), tablePixelAspect(*table_));
+  resizeFrame(320, table_->screenHeight(), tablePixelAspect(*table_), encore::TableScreen::kDisplayRows);
   audio_.setSource([t = table_.get()](float* out, int frames) { t->sound(out, frames); });
   loadFlipperPictures(index);
   log::info("opened table " + std::to_string(index + 1));
@@ -722,7 +723,7 @@ void App::update(double dt) {
         openIntro(index);
         return;
       }
-      if (table_) resizeFrame(320, table_->screenHeight(), tablePixelAspect(*table_));
+      if (table_) resizeFrame(320, table_->screenHeight(), tablePixelAspect(*table_), encore::TableScreen::kDisplayRows);
     }
   }
 }
@@ -962,7 +963,7 @@ void App::render() {
   // of the game: a resolution changed in the pause menu takes effect at once, and with the
   // display faster than the game the screen is drawn again before another frame has run.
   if (table_)
-    resizeFrame(320, table_->screenHeight(), tablePixelAspect(*table_));
+    resizeFrame(320, table_->screenHeight(), tablePixelAspect(*table_), encore::TableScreen::kDisplayRows);
   else if (intro_)
     resizeFrame(encore::Front::kWidth, intro_->height(), 1.0);
   if (table_) {
