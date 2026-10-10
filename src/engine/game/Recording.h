@@ -81,9 +81,16 @@ struct Recording {
   std::string fileName(const std::string& when, const std::string& tag = {}) const;
 };
 
+/// How a game played again was really played, as the table had it (TableGame::playedWithCheats,
+/// gentlestAngle), whatever the recording's header says.
+struct HowPlayed {
+  bool cheats = false;
+  int angle = -1;  ///< the gentlest it was played at, 0 low to 2 higher; -1 if no game started
+};
+
 /// Plays a recording again from the table's files, and returns what that recorded: for a
-/// faithful recording, the same events, game and score.
-Recording replay(ByteView prg, ByteView module, const Recording& recording);
+/// faithful recording, the same events, game and score; and, if asked, how it was played.
+Recording replay(ByteView prg, ByteView module, const Recording& recording, HowPlayed* how = nullptr);
 
 /// What a server will take.
 struct VerifyLimits {
@@ -99,6 +106,9 @@ struct Verdict {
   std::string reason;  ///< why not, when not
   Recording replayed;     ///< as played again: its games and scores are the ones to go by
   bool claimsMatch = false;  ///< the recording's own games and scores came out the same
+  /// The gentlest angle the game was played at (0 low to 2 higher): a game can be paused and
+  /// the angle changed, and it counts as played at the gentlest it had.
+  int angle = -1;
 };
 Verdict verify(ByteView prg, ByteView module, const Recording& recording, const VerifyLimits& limits = {});
 

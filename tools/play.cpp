@@ -11,6 +11,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <exception>
 #include <string>
 #include <vector>
 
@@ -88,13 +89,24 @@ int verifyFile(const std::filesystem::path& dir, const std::filesystem::path& fi
     std::fprintf(stderr, "cannot read the table files\n");
     return 2;
   }
-  const Verdict v = verify(*prg, *mod, *rec);
+  // (a recording the table cannot play through is refused like any other, not a verifier
+  // that stopped: the job goes on to the next)
+  Verdict v;
+  try {
+    v = verify(*prg, *mod, *rec);
+  } catch (const std::exception& e) {
+    v = {};
+    v.reason = "the table could not play it";
+    std::fprintf(stderr, "%s\n", e.what());
+  }
   static constexpr const char* kAngle[] = {"low", "high", "higher"};
+  const int angle = v.angle >= 0 ? v.angle : static_cast<int>(rec->options.angle);
   std::string out = "{\"ok\":" + std::string(v.ok ? "true" : "false");
   if (!v.ok) out += ",\"reason\":\"" + v.reason + "\"";
   out += ",\"format\":" + std::to_string(Recording::kFormat) + ",\"table\":" + std::to_string(rec->table + 1) +
          ",\"balls\":" + std::to_string(rec->carry.balls) + ",\"angle\":\"" +
-         kAngle[static_cast<int>(rec->options.angle)] + "\",\"frames\":" + std::to_string(rec->frames);
+         kAngle[angle >= 0 && angle <= 2 ? angle : 1] +
+         "\",\"frames\":" + std::to_string(rec->frames);
   if (v.ok) {
     out += ",\"games\":[";
     for (std::size_t g = 0; g < v.replayed.games.size(); ++g) {

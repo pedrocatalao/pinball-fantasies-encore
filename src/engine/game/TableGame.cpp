@@ -416,6 +416,15 @@ void TableGame::frame() {
   lastWait_ = wait;
 
   const bool now = !waiting() && failure_.empty() && !engine_->exited();
+  // How the recorded game is played (the first: a recording is of one game). The cheats are
+  // typed only while no game is played, so they are as the game starts: no tilt, the other
+  // pace, or more balls than the options give.
+  if (now && recording_.games.empty()) {
+    if (!playing_)
+      cheats_ = engine_->B(0x372a) == 0xff || (engine_->B(at::keys) & 4) != 0 ||
+                engine_->B(0x33dd) > options_.balls;
+    gentlest_ = gentlest_ < 0 ? engine_->angle() : std::min(gentlest_, engine_->angle());
+  }
   // (a table left in the middle of a game leaves no game to keep)
   if (playing_ && !now && !engine_->exited() && recording_.games.empty()) {
     Recording::Game g;

@@ -4,8 +4,7 @@ When a one-player game makes the local high scores, the game asks, after the ini
 typed, whether to send it online; if so, it sends the game as a recording. A Cloudflare Worker keeps it
 as *pending*; a GitHub Actions job (`.github/workflows/verify-scores.yml`) plays it again with
 `encore-play --verify` against the game's own files and reports what it found; only then does
-the score count. What the recording claims is never believed: the score on the board is the
-one the replay arrives at.
+the score count. The score on the board is the one the replay arrives at.
 
 - `src/index.ts`: the Worker, with the API at the top of the file.
 - `migrations/`: the D1 database.
@@ -136,12 +135,12 @@ npx wrangler dev
 ```
 
 Then, from the repository root, with a player token of your own (`openssl rand -hex 32`), and a
-recording with initials (`ENCORE_INITIALS=RDX ENCORE_RECORD=rdx.RPL build/encore-play <the
-game's folder> 2` makes one; or point the game itself at the local server with
-`ENCORE_API=http://localhost:8787`):
+recording with initials: one of `tests/recordings`, or one the game made pointed at the local
+server (`ENCORE_API=http://localhost:8787`):
 
 ```bash
-curl -X POST -H "Authorization: Bearer $TOKEN" --data-binary @rdx.RPL http://localhost:8787/v1/runs
+curl -X POST -H "Authorization: Bearer $TOKEN" \
+  --data-binary @tests/recordings/FANTASY-SPDDEVLS-RDX-28013570-20261003-1939.RPL http://localhost:8787/v1/runs
 ENCORE_API=http://localhost:8787 VERIFIER_TOKEN=local-secret ENCORE_PLAY=build/encore-play \
   GAME_DIR=<the game's folder> server/verify.sh
 curl "http://localhost:8787/v1/scores?table=1"
@@ -151,7 +150,19 @@ curl "http://localhost:8787/v1/scores?table=1"
 
 One whole game, by one player, played to its end without cheats (no tilt, slow motion, or
 more balls than the options give), with initials typed for it, in a recording format the
-verifier can play.
+verifier can play. What the replay does is what counts, not what the recording's header says:
+a cheat's word typed into the recording before the start is seen as the game starts, and a game
+whose angle was changed while paused counts as played at the gentlest angle it had.
+
+A recording that plays again to anything other than its own games and keys is rejected, as one
+that does not play to what it says. Each game's seed (what every chance in it is drawn from)
+belongs to the first player who sends it: the same seed from anyone else is a copy of their
+game however the rest of the file was changed, and is refused (409); the same player sending it
+again gets the first one back. The database keeps one game per seed, so copies sent at the same
+moment cannot both get in. A game the verifier cannot play at all (its recording cannot be
+fetched, or encore-play stops) waits behind the others and is tried again; after three tries it
+is rejected as one that could not be checked. A verdict counts once: one sent for a game
+already settled is refused (409).
 
 A player is an installation of the game: it makes a secret token the first time it sends a
 game (kept in `online.txt` beside the high scores) and the server gives it a public tag of

@@ -21,7 +21,7 @@
 //   PUT  /v1/publish/art  <manifest JSON>          make a set the current one  (publisher token)
 //   GET  /v1/verifier/pending                      games waiting to be checked  (verifier token)
 //   GET  /v1/verifier/runs/<id>/replay             any game's recording         (verifier token)
-//   POST /v1/verifier/runs/<id>  <verdict JSON>    what the verifier found      (verifier token)
+//   POST /v1/verifier/runs/<id>  <verdict JSON>    what the verifier found, or {failed} (verifier token)
 //   GET  /v1/verifier/files                        the game's table files kept  (verifier token)
 //   GET  /v1/verifier/files/<name>                 one of them                  (verifier token)
 //   PUT  /v1/verifier/files/<name>  <file>         keep one (TABLE1.PRG ...)    (verifier token)
@@ -246,15 +246,32 @@ async function sendRun(env: Env, req: Request, ctx: ExecutionContext): Promise<R
   if ((counts?.pending ?? 0) >= MAX_PENDING_PER_PLAYER || (counts?.today ?? 0) >= MAX_RUNS_PER_DAY)
     return fail(429, "too many games waiting; try again later");
   const version = (req.headers.get("X-Encore-Version") ?? "").slice(0, 32) || null;
-  const run = await env.DB.prepare(
-    `INSERT INTO runs (player_id, replay_sha256, seed, format, client_version, submitted_at) VALUES (?, ?, ?, ?, ?, ?) RETURNING id`,
-  )
-    .bind(player.id, hash, seed, format, version, now())
-    .first<{ id: number }>();
-  await env.DB.prepare("INSERT INTO replays (run_id, data) VALUES (?, ?)").bind(run!.id, data).run();
+  // The game and its recording together or not at all (a batch is one transaction). The same
+  // file or seed sent at the same moment by someone else meets the database's own uniqueness,
+  // and then neither row is written: the answer is as for a copy.
+  const [inserted] = await env.DB.batch([
+    env.DB.prepare(
+      `INSERT INTO runs (player_id, replay_sha256, seed, format, client_version, submitted_at) VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT DO NOTHING RETURNING id`,
+    ).bind(player.id, hash, seed, format, version, now()),
+    env.DB.prepare(
+      `INSERT INTO replays (run_id, data) SELECT id, ?2 FROM runs
+         WHERE replay_sha256 = ?1 AND NOT EXISTS (SELECT 1 FROM replays WHERE replays.run_id = runs.id)`,
+    ).bind(hash, data),
+  ]);
+  const run = (inserted.results as { id: number }[])[0];
+  if (!run) {
+    const other = await env.DB.prepare(
+      "SELECT id, player_id, status FROM runs WHERE replay_sha256 = ?1 OR seed = ?2 ORDER BY id LIMIT 1",
+    )
+      .bind(hash, seed)
+      .first<{ id: number; player_id: number; status: string }>();
+    if (!other || other.player_id !== player.id) return fail(409, "already sent by someone else");
+    return json({ id: other.id, status: other.status, tag: player.tag });
+  }
   // After the answer, so the game is not kept waiting on GitHub.
   ctx.waitUntil(startVerifier(env).catch((e) => console.error(e)));
-  return json({ id: run!.id, status: "pending", tag: player.tag }, 202);
+  return json({ id: run.id, status: "pending", tag: player.tag }, 202);
 }
 
 async function getRun(env: Env, id: number): Promise<Response> {
@@ -310,7 +327,8 @@ function isVerifier(env: Env, req: Request): boolean {
 async function pending(env: Env, url: URL): Promise<Response> {
   const limit = Math.min(Math.max(Number(url.searchParams.get("limit") ?? 50) || 50, 1), 500);
   const { results } = await env.DB.prepare(
-    "SELECT id, format FROM runs WHERE status = 'pending' ORDER BY submitted_at LIMIT ?",
+    // (a game the verifier could not play waits behind the others, so it holds none of them up)
+    "SELECT id, format FROM runs WHERE status = 'pending' ORDER BY attempts, submitted_at LIMIT ?",
   )
     .bind(limit)
     .all();
@@ -320,6 +338,8 @@ async function pending(env: Env, url: URL): Promise<Response> {
 /** What encore-play --verify printed for a game: the game counts only for one player, whole. */
 interface Verdict {
   ok: boolean;
+  /** Instead of a verdict: the verifier could not play the game at all, and says why. */
+  failed?: string;
   reason?: string;
   format?: number;
   table?: number;
@@ -331,11 +351,32 @@ interface Verdict {
   claimsMatch?: boolean;
 }
 
+/** How many times the verifier may fail to play a game before it is rejected. */
+const MAX_ATTEMPTS = 3;
+
 async function report(env: Env, req: Request, id: number): Promise<Response> {
   const v = (await req.json().catch(() => null)) as Verdict | null;
-  if (!v || typeof v.ok !== "boolean") return fail(400, "not a verdict");
-  const run = await env.DB.prepare("SELECT status FROM runs WHERE id = ?").bind(id).first<{ status: string }>();
+  if (!v || (typeof v.ok !== "boolean" && typeof v.failed !== "string")) return fail(400, "not a verdict");
+  const run = await env.DB.prepare("SELECT status, attempts FROM runs WHERE id = ?")
+    .bind(id)
+    .first<{ status: string; attempts: number }>();
   if (!run) return fail(404, "no such game");
+  // A verdict counts once: a late or repeated one does not change a game already settled.
+  if (run.status !== "pending") return fail(409, `already ${run.status}`);
+  if (typeof v.failed === "string") {
+    const attempts = run.attempts + 1;
+    if (attempts < MAX_ATTEMPTS) {
+      await env.DB.prepare("UPDATE runs SET attempts = ? WHERE id = ? AND status = 'pending'").bind(attempts, id).run();
+      console.error(`game ${id} could not be checked (${attempts} of ${MAX_ATTEMPTS}): ${v.failed.slice(0, 200)}`);
+      return json({ id, status: "pending", attempts });
+    }
+    await env.DB.prepare(
+      "UPDATE runs SET status = 'rejected', reason = 'it could not be checked', attempts = ?, verified_at = ? WHERE id = ? AND status = 'pending'",
+    )
+      .bind(attempts, now(), id)
+      .run();
+    return json({ id, status: "rejected", reason: "it could not be checked" });
+  }
   let reason: string | null = null;
   if (!v.ok) reason = v.reason ?? "not believed";
   else if (v.games?.length !== 1) reason = "not one whole game";
@@ -345,14 +386,14 @@ async function report(env: Env, req: Request, id: number): Promise<Response> {
   else if (!(v.table! >= 1 && v.table! <= 4) || !ANGLES.includes(v.angle!) || !(v.balls! >= 1 && v.balls! <= 9))
     reason = "a verdict that makes no sense";
   if (reason) {
-    await env.DB.prepare("UPDATE runs SET status = 'rejected', reason = ?, verified_at = ? WHERE id = ?")
+    await env.DB.prepare("UPDATE runs SET status = 'rejected', reason = ?, verified_at = ? WHERE id = ? AND status = 'pending'")
       .bind(reason.slice(0, 200), now(), id)
       .run();
     return json({ id, status: "rejected", reason });
   }
   await env.DB.prepare(
     `UPDATE runs SET status = 'verified', reason = NULL, table_no = ?, balls = ?, angle = ?, frames = ?, score = ?,
-       initials = ?, verified_at = ? WHERE id = ?`,
+       initials = ?, verified_at = ? WHERE id = ? AND status = 'pending'`,
   )
     .bind(v.table, v.balls, v.angle, v.frames, v.games![0].scores[0], v.games![0].initials, now(), id)
     .run();
