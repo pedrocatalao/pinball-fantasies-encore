@@ -18,6 +18,8 @@ Renderer::~Renderer() {
   if (hdMapTex_) glDeleteTextures(1, &hdMapTex_);
   for (GLuint& t : spriteTex_)
     if (t) glDeleteTextures(1, &t);
+  for (GLuint& t : coverTex_)
+    if (t) glDeleteTextures(1, &t);
 }
 
 void Renderer::deleteTarget(Target& t) {
@@ -96,6 +98,24 @@ void Renderer::setSpritePicture(std::size_t slot, int width, int height, const u
 
 void Renderer::clearSpritePictures() { spriteSize_ = {}; }
 
+void Renderer::setCoverPicture(int layer, int width, int height, const u8* rgba, int sourceWidth, int sourceHeight) {
+  if (layer < 0 || layer > 1) return;
+  const auto l = static_cast<std::size_t>(layer);
+  if (!coverTex_[l]) glGenTextures(1, &coverTex_[l]);
+  glActiveTexture(GL_TEXTURE0);
+  glBindTexture(GL_TEXTURE_2D, coverTex_[l]);
+  glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+  coverLoaded_[l] = true;
+  coverSource_[l] = {sourceWidth, sourceHeight};
+}
+
+void Renderer::clearCoverPictures() { coverLoaded_ = {}; }
+
 void Renderer::drawSprites(const HdFrame& hd) {
   if (!spritePassLoaded_) {
     spritePassLoaded_ = true;
@@ -108,6 +128,16 @@ void Renderer::drawSprites(const HdFrame& hd) {
   glUniform1i(spritePass_.uniform("uSprite"), 3);
   glUniform2f(spritePass_.uniform("uFrameSize"), static_cast<float>(hd.width), static_cast<float>(hd.height));
   glUniform1f(spritePass_.uniform("uTint"), hd.spriteTint);
+  const auto layer = static_cast<std::size_t>(hd.ballLayer != 0 ? 1 : 0);
+  glUniform1ui(spritePass_.uniform("uHasCover"), coverLoaded_[layer] ? 1u : 0u);
+  if (coverLoaded_[layer]) {
+    glActiveTexture(GL_TEXTURE4);
+    glBindTexture(GL_TEXTURE_2D, coverTex_[layer]);
+    glUniform1i(spritePass_.uniform("uCover"), 4);
+    glUniform2f(spritePass_.uniform("uCoverSource"), static_cast<float>(coverSource_[layer][0]), static_cast<float>(coverSource_[layer][1]));
+    glUniform1ui(spritePass_.uniform("uFirstPlayfield"), static_cast<unsigned>(HdPicture::Playfield1On));
+    glUniform1ui(spritePass_.uniform("uLastPlayfield"), static_cast<unsigned>(HdPicture::Playfield4Off));
+  }
   glEnable(GL_BLEND);
   glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
   glActiveTexture(GL_TEXTURE3);

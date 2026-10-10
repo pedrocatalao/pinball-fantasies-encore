@@ -386,6 +386,7 @@ void TableGame::frame() {
   link_->give();
   // the picture shows the ball and the flippers where the frame leaves them
   if (!engine_->exited()) engine_->showAsNow();
+  if (screen_) screen_->follow(*engine_);
   aim(sight);
   if (engine_->isPaused()) {
     if (!engine_->asksToQuit()) {

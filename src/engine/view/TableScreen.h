@@ -60,6 +60,14 @@ class TableScreen {
 
   /// Once the table has started: works out what the high-resolution pictures need.
   void started(Engine& engine);
+  /// Once a frame: which of the two maps of what hides the ball the picture goes by. The
+  /// engine changes the ball over from the ramps to the playfield where its walls must change,
+  /// which can be a little before the ball is out from under the ramp it leaves (at the top of
+  /// Stones 'n Bones' plunger rail, the ramp's middle wire would be drawn over it); the
+  /// picture goes on as if on the ramps until the playfield's map hides no more of the ball
+  /// than the ramps' does, or the ball has gone a little way on. Only the picture: the game is
+  /// the same.
+  void follow(Engine& engine);
 
   /// Each flipper as it lies at rest, cut out of the playfield's picture; and whether it is
   /// one of the left key's.
@@ -94,6 +102,9 @@ class TableScreen {
   Bytes picture_;  ///< the playfield as it now is on the screen: its picture, and the flippers as they stand
   std::array<Bytes, 2> hides_;      ///< per dot: the artwork hides the ball there, on the playfield and on the ramps
   std::array<Bytes, 2> cover_;      ///< and how much of it, 0 to 255
+  bool drawnOnRamps_ = false;       ///< the picture hides the ball as on the ramps (follow())
+  int stillOnRamps_ = 0;            ///< frames it has gone on doing so after the engine changed over
+  std::array<int, 2> changedAt_{};  ///< where the ball was drawn when the engine changed over
   std::vector<FlipperArt> art_;
   Bytes lampAreas_;                 ///< per dot of the playfield: the lamp it belongs to, or 0
   std::vector<u16> lamps_;          ///< each lamp's record of colours in the table's memory

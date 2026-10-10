@@ -35,6 +35,13 @@ class Renderer {
   void setHdEnabled(bool on) { hdEnabled_ = on; }
   /// A picture drawn over the scene at an angle (a flipper), RGBA; `slot` is HdSprite::picture.
   void setSpritePicture(std::size_t slot, int width, int height, const u8* rgba);
+  /// What hides the ball, drawn to the table's replacement pictures (black hides it, white
+  /// does not, pure red is clear plastic it is seen through greyed), for the ball on the
+  /// playfield (layer 0) or on the ramps (1); `sourceWidth` and `sourceHeight` are the
+  /// original playfield's size, which it covers edge to edge. Without one, the original's own
+  /// dots say it.
+  void setCoverPicture(int layer, int width, int height, const u8* rgba, int sourceWidth, int sourceHeight);
+  void clearCoverPictures();
   void clearSpritePictures();
   bool hdEnabled() const { return hdEnabled_; }
 
@@ -87,6 +94,9 @@ class Renderer {
   bool spritePassLoaded_ = false;
   std::array<GLuint, kSprites> spriteTex_{};
   std::array<std::array<int, 2>, kSprites> spriteSize_{};
+  std::array<GLuint, 2> coverTex_{};
+  std::array<bool, 2> coverLoaded_{};
+  std::array<std::array<int, 2>, 2> coverSource_{};
   std::filesystem::path shaderDir_;
 };
 
