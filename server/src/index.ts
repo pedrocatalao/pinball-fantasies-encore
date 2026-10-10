@@ -7,7 +7,7 @@
 //
 //   GET  /                                         the project's page, from ../site (wrangler.toml)
 //   GET  /media/<file>                             its videos, a part of one when asked (Range)
-//   GET  /v1/scores?table=1&balls=3&angle=high   best verified score per player and initials, and their games
+//   GET  /v1/scores?table=1&balls=3&angle=high&limit=50   best verified score per player and initials (200 at most), with how many games each has verified
 //   GET  /v1/players/<tag>                         a player's verified games
 //   POST /v1/runs               <recording>        send a game                  (player token)
 //   GET  /v1/runs/<id>                             a game, and its rank once verified

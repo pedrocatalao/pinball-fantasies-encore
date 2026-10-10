@@ -19,7 +19,7 @@
 namespace {
 
 void usage() {
-  std::puts("Pinball Fantasies Remastered\n"
+  std::puts("Pinball Fantasies: Encore!\n"
             "  --data <dir>     folder with the original game files (INTRO.PRG, TABLE1.PRG, ...)\n"
             "  --table <1-4>    open a table directly instead of the menu\n"
             "  --fullscreen     start in fullscreen\n"
@@ -28,7 +28,7 @@ void usage() {
             "  --smooth         soften pixel edges, which steadies the picture while scrolling\n"
             "  --crt            CRT look: scanlines, shadow mask, glow (F9 switches it); remembered\n"
             "  --no-crt         the original crisp pixels\n"
-            "  --hd, --no-hd    high-resolution pictures in the intro and menu, or the originals (F10); remembered\n"
+            "  --hd, --no-hd    the remastered pictures, or the originals (F10); remembered\n"
             "  --trail, --no-trail  the fading ghosts behind the ball (F8 while paused); remembered\n"
             "  --hd-dir <dir>   HD pictures to use instead of the ones fetched from the server (assets/hd, say)\n"
             "  --res <mode>     screen mode: normal (320x240), high (320x350), full (whole table) or tall\n"

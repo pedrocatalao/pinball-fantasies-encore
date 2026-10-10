@@ -38,8 +38,8 @@ cmake --build build --config RelWithDebInfo
 
 On macOS the shaders and pictures go inside the application bundle; elsewhere they are copied
 next to the executable, which is where the game looks for them. Settings and high scores live
-in the folder SDL keeps for the platform (`~/Library/Application Support`, `~/.local/share`,
-`%APPDATA%`).
+in the folder SDL keeps for the platform, under `Encore/Pinball Fantasies`
+(`~/Library/Application Support/...`, `~/.local/share/...`, `%APPDATA%\...`).
 
 ## Command line
 
@@ -58,6 +58,10 @@ in the folder SDL keeps for the platform (`~/Library/Application Support`, `~/.l
 | `--fullscreen`, `--scale <n>` | window options; fullscreen is otherwise as it was left last time |
 | `--screenshot <file>`, `--screenshot-frame <n>` | render one frame to a PNG and quit |
 | `--stats` | log, once a second, how long each frame takes |
+| `<file.RPL> ...` | play recordings one after another, then stay on the last one's table (dropping one on the program or its window does the same) |
+| `--video <dir>` | film the recordings instead: a silent clip of each into `<dir>`, made by ffmpeg |
+| `--video-from <s>`, `--video-seconds <n>` | which part of each recording is filmed (default from 12 s, for 9 s) |
+| `--verbose` | debug logging |
 | `--verbose` | log every step, not only what matters |
 | `--help` | the options, and what they do |
 

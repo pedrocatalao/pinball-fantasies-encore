@@ -153,7 +153,7 @@ const day = (seconds) => new Date(seconds * 1000).toISOString().slice(0, 10);
 const STARS = [4, 16, 64];
 function stars(games) {
   const n = STARS.filter((g) => games >= g).length;
-  return n ? el("span", { className: "played", title: `${games} scores submitted` },
+  return n ? el("span", { className: "played", title: `${games} verified games` },
     ...Array.from({ length: n }, () => el("i"))) : "";
 }
 
@@ -220,7 +220,7 @@ let asked = 0;
 async function loadBoards() {
   const mine = ++asked;
   await Promise.all(TABLES.map(async (t, i) => {
-    const q = new URLSearchParams({ table: i + 1, limit: 100 });
+    const q = new URLSearchParams({ table: i + 1, limit: 200 });
     if (state.balls) q.set("balls", state.balls);
     if (state.angle) q.set("angle", state.angle);
     const { board, empty } = slides[i];

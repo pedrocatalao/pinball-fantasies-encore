@@ -2,7 +2,9 @@
 
 Addresses: `INTRO cs:` = `re/INTRO_cs.lst`, `T1 cs:` = `re/TABLE1_cs.lst`, `EXE:` = file offset in
 PINBALL.EXE. Driver offsets refer to the *unpacked* driver images, because every `.SDR` file is an
-EXEPACK-compressed executable; `re/agent_services/unexepack.py` unpacks them.
+EXEPACK-compressed executable; `re/unexepack.py` unpacks them. The listings and dumps under `re/`
+are made from your own copy of the game by the tools there (`re/disasm.py`), and are not in the
+repository: they are derived from the game's files, which are never redistributed.
 
 ## Process structure
 
@@ -116,6 +118,10 @@ end-of-name marker.
 
 The file currently in the game folder reads five balls, low angle, medium scrolling, music on,
 high resolution, colour.
+
+This version writes two values the original never does: angle 2 for its steeper "higher" (which
+the DOS game reads as high), and resolution 2 or 3 for the whole table on one screen (full and
+tall); see `src/game/Config.cpp`.
 
 ## SOUND.CFG
 
