@@ -81,6 +81,15 @@ jobs:
             "build/RelWithDebInfo/encore-extract.exe")) {
             if (-not (Test-Path $f)) { throw "missing $f" }
           }
+          # The C++ runtime is built in (CMakeLists.txt): nothing but Windows and SDL3.dll is needed.
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath
+          $dumpbin = Get-ChildItem "$vs\VC\Tools\MSVC\*\bin\Hostx64\x64\dumpbin.exe" | Select-Object -First 1
+          $needs = & $dumpbin.FullName /dependents "build/RelWithDebInfo/Pinball Fantasies.exe"
+          $needs
+          if ($needs -match "VCRUNTIME|MSVCP|vcruntime|msvcp") { throw "the game needs Microsoft's C++ runtime installed" }
+          # And it reads text as UTF-8 (packaging/windows/utf8.manifest).
+          $exe = [System.IO.File]::ReadAllBytes("build/RelWithDebInfo/Pinball Fantasies.exe")
+          if (-not ([System.Text.Encoding]::ASCII.GetString($exe) -match "activeCodePage")) { throw "the game has no UTF-8 manifest" }
 
       # SDL3.dll goes beside the executable, where Windows looks for it first.
       - name: Package
