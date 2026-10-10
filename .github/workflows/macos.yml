@@ -48,6 +48,30 @@ jobs:
 
       # The tests that need the original game files skip themselves when the files are not
       # there, which they never are here: the game's data is not redistributable.
+      # The tests that play whole games need the game's table files, which are never in the
+      # repository: they are fetched from the server as the score checking does (server/verify.sh),
+      # into the runner's own temporary folder, and then required, so that those tests cannot pass
+      # by being skipped. Without the token (pull requests from forks) they are skipped instead.
+      - name: Fetch the game's table files
+        env:
+          ENCORE_API: ${{ vars.ENCORE_API }}
+          VERIFIER_TOKEN: ${{ secrets.VERIFIER_TOKEN }}
+        run: |
+          if [ -z "$VERIFIER_TOKEN" ] || [ -z "$ENCORE_API" ]; then
+            echo "no token here: the tests that need the game's files are skipped"
+            exit 0
+          fi
+          dir="$RUNNER_TEMP/game-files"
+          mkdir -p "$dir"
+          for n in 1 2 3 4; do
+            for ext in PRG MOD; do
+              curl -fsS --retry 3 -H "Authorization: Bearer $VERIFIER_TOKEN" -o "$dir/TABLE$n.$ext" \
+                "$ENCORE_API/v1/verifier/files/TABLE$n.$ext"
+            done
+          done
+          echo "ENCORE_DATA=$dir" >> "$GITHUB_ENV"
+          echo "ENCORE_REQUIRE_DATA=1" >> "$GITHUB_ENV"
+
       - name: Test
         run: ctest --test-dir build --output-on-failure
 

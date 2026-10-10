@@ -17,8 +17,15 @@ using namespace encore;
 namespace {
 
 bool haveData() {
-  static const bool ok = std::filesystem::exists(test::gameDir()) && unsupportedGameFiles(test::gameDir()).empty();
-  if (!ok) std::printf("  (skipped: no supported game files at %s)\n", test::gameDir().string().c_str());
+  static const bool ok = test::haveTables();
+  if (!ok) std::printf("  (skipped: no supported table files at %s)\n", test::gameDir().string().c_str());
+  return ok;
+}
+
+/// The menu's files too (INTRO.PRG, MOD2.MOD), for the tests of the menu.
+bool haveMenu() {
+  static const bool ok = test::haveMenu();
+  if (!ok) std::printf("  (skipped: no supported menu files at %s)\n", test::gameDir().string().c_str());
   return ok;
 }
 
@@ -96,8 +103,10 @@ TEST(recorded_games_play_again_exactly) {
   }
 }
 
-// Games played and kept by earlier versions (tests/recordings): each still plays again to the
-// game it was, score, last frame and every event.
+// Games played and kept by earlier versions (tests/recordings), among them players' games from
+// the online board: each still plays again to the game it was, score, last frame and every
+// event. The score checking is built from the newest code, and checks games sent by released
+// versions: a change that plays any of these differently is one it must not have.
 TEST(kept_recordings_play_again_exactly) {
   if (!haveData()) return;
   const auto dir = std::filesystem::path(ENCORE_SOURCE_DIR) / "tests" / "recordings";
@@ -116,7 +125,7 @@ TEST(kept_recordings_play_again_exactly) {
     CHECK(again.frames == kept->frames);
     ++played;
   }
-  CHECK(played == 8);
+  CHECK(played == 16);
 }
 
 // A best score asks for initials and then whether to send the game online; both answers are
@@ -240,7 +249,7 @@ TEST(flipper_pictures_turn_about_the_artwork_hinge) {
 }
 
 TEST(the_menu_starts_a_table) {
-  if (!haveData()) return;
+  if (!haveMenu()) return;
   Front front(read("INTRO.PRG"), read("MOD2.MOD"), Config::defaults(), 0);
   bool opened = false;
   for (int f = 0; f < 1200 && !opened; ++f) {
@@ -255,7 +264,7 @@ TEST(the_menu_starts_a_table) {
 // With the whole table on one screen chosen, the menu is as tall as that screen and has all
 // four tables' banners on its first page: there is a picture in each quarter of it.
 TEST(the_tall_menu_shows_four_tables) {
-  if (!haveData()) return;
+  if (!haveMenu()) return;
   Config config = Config::defaults();
   config.options.resolution = Resolution::Full;
   Front front(read("INTRO.PRG"), read("MOD2.MOD"), config, 0);

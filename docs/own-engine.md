@@ -64,6 +64,16 @@ build/encore-play <the game's folder> <table 1-4> 60000 <seed>     # games by ke
 build/encore-play <the game's folder> --verify <file.RPL>          # as the server checks one
 ```
 
+The online scores are checked by `encore-play` built from the newest code on main, and the
+games it checks were played on released versions. So a recording must keep playing to the same
+end on whatever comes after it: a change to how games play is one main must not take, unless it
+comes with a new recording format (`Recording::kFormat`, which the server also has to accept)
+and the older formats still play as they did. The guard is `kept_recordings_play_again_exactly`,
+over the games in `tests/recordings` (players' games from the online board among them: adding a
+few now and then keeps the guard wide), and CI runs it on all three systems with the game's
+table files fetched from the server as the score checking does; with them asked for
+(`ENCORE_REQUIRE_DATA`) and missing, the tests fail rather than pass by being skipped.
+
 ## What this version changes on purpose
 
 The engine by itself is the original's, to the byte: that is what the referee checks. The game

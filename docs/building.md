@@ -13,9 +13,13 @@ and set `-DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"`):
 ```bash
 cmake -S . -B build
 cmake --build build -j
-./build/encore-tests
+ctest --test-dir build
 open "build/Pinball Fantasies.app"
 ```
+
+The tests that play whole games need the game's files, from `ENCORE_DATA` or a `FANTASY` folder
+beside the project, and are skipped without them; `ENCORE_REQUIRE_DATA=1` makes their absence a
+failure instead, as CI has it (see [own-engine.md](own-engine.md#the-game)).
 
 **Linux** (SDL3 from your distribution, or built from source, plus `libgl1-mesa-dev`):
 
