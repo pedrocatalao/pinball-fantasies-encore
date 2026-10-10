@@ -1,5 +1,5 @@
 #version 410 core
-// Pass 2: presentation. This is the hook for CRT, scanline or bloom effects later.
+// Pass 2: presentation (the CRT look is crt-lottes.frag instead).
 //
 // The default keeps the picture crisp. Each output pixel samples the centre of the source
 // pixel it falls inside, so the image stays as sharp as nearest-neighbour, and only the
@@ -10,7 +10,6 @@ out vec4 fragColor;
 uniform sampler2D uScene;      // native-resolution RGB scene
 uniform vec2 uSceneSize;       // pixels
 uniform vec2 uOutputSize;      // pixels of the viewport this pass renders into
-uniform float uTime;           // seconds
 uniform float uFilter;         // 0 = nearest neighbour, 1 = sharp with antialiased edges
 
 vec2 sharpUv(vec2 uv) {

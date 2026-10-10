@@ -68,7 +68,7 @@ class App {
  private:
   bool init();
   void update(double dt);
-  void render(double now);
+  void render();
   bool askToDownload();
   bool askYesNo(std::span<const std::string_view> lines);
   bool askYesNo(std::initializer_list<std::string_view> lines) { return askYesNo(std::span(lines.begin(), lines.size())); }

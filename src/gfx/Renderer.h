@@ -31,7 +31,6 @@ class Renderer {
   /// A high-resolution replacement for one of the original pictures, RGBA.
   void setHdPicture(HdPicture p, int width, int height, const u8* rgba);
   bool hasHdPictures() const { return hdLoaded_ != 0; }
-  bool hasHdPicture(HdPicture p) const { return (hdLoaded_ >> static_cast<unsigned>(p)) & 1u; }
   void setHdEnabled(bool on) { hdEnabled_ = on; }
   /// A picture drawn over the scene at an angle (a flipper), RGBA; `slot` is HdSprite::picture.
   void setSpritePicture(std::size_t slot, int width, int height, const u8* rgba);
@@ -53,10 +52,8 @@ class Renderer {
 
   /// Draws one frame into a window of `windowWidth` x `windowHeight` drawable pixels.
   /// `hd`: where the frame drew original pictures that have replacements.
-  void draw(const Framebuffer& frame, int windowWidth, int windowHeight, double timeSeconds,
-            const HdFrame* hd = nullptr);
+  void draw(const Framebuffer& frame, int windowWidth, int windowHeight, const HdFrame* hd = nullptr);
   void pollShaderReload();
-  Rect viewport() const { return viewport_; }
 
  private:
   struct Target {

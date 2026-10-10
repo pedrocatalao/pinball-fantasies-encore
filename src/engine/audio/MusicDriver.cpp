@@ -468,12 +468,7 @@ void MusicDriver::mixVoice(Channel& c, bool left, float* out, std::size_t frames
       if (c.position >= c.end) c.position = c.loopStart;
     }
     const float s = static_cast<float>(c.data[c.position]) * gain;  // (the byte it is at, as the driver takes it)
-    if (mono_) {
-      out[i * 2] += s * 0.5f;
-      out[i * 2 + 1] += s * 0.5f;
-    } else {
-      out[i * 2 + (left ? 0 : 1)] += s;
-    }
+    out[i * 2 + (left ? 0 : 1)] += s;
     const u32 moved = u32{c.fraction} + (c.step & 0xffff);
     c.fraction = static_cast<u16>(moved);
     const u32 position = u32{c.position} + (c.step >> 16) + (moved >> 16);
@@ -499,7 +494,7 @@ void MusicDriver::mixVoiceBalanced(Channel& c, bool left, float* out, std::size_
   if (std::exchange(c.started, false)) c.level = 0;
   const float ease = static_cast<float>(1.0 - std::exp(-1.0 / (0.0015 * rate_)));  // a millisecond and a half
   // mostly on its own side, a little on the other (the driver: all on its own side)
-  const float toLeft = mono_ ? 0.5f : left ? kOwnSide : 1.0f - kOwnSide, toRight = mono_ ? 0.5f : 1.0f - toLeft;
+  const float toLeft = left ? kOwnSide : 1.0f - kOwnSide, toRight = 1.0f - toLeft;
   const std::vector<float>& sinc = sincTable();
   for (std::size_t i = 0; i < frames; ++i) {
     if (c.position >= c.end) {

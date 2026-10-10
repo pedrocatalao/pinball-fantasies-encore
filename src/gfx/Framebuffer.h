@@ -24,10 +24,6 @@ class Framebuffer {
     if (x >= 0 && y >= 0 && x < width_ && y < height_) pixels_[static_cast<std::size_t>(y) * width_ + x] = index;
   }
   void fillRect(Rect r, u8 index);
-  /// Copies `w` x `h` indexed pixels from `src` (row pitch `srcPitch`) to (dx,dy), clipped.
-  void blit(const u8* src, int srcPitch, int w, int h, int dx, int dy);
-  /// Like blit, but pixels equal to `transparent` are skipped.
-  void blitKeyed(const u8* src, int srcPitch, int w, int h, int dx, int dy, u8 transparent);
 
  private:
   int width_ = 0;

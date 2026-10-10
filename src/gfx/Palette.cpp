@@ -18,22 +18,4 @@ void Palette::quantizeTo6Bit() {
   }
 }
 
-void Palette::cycle(const std::vector<ColorRange>& ranges, double dtSeconds) {
-  cycleAccumulators_.resize(ranges.size(), 0.0);
-  for (std::size_t i = 0; i < ranges.size(); ++i) {
-    const ColorRange& r = ranges[i];
-    if (!(r.flags & 1) || r.rate == 0 || r.high <= r.low) continue;
-    const double stepsPerSecond = r.rate * 60.0 / 16384.0;
-    cycleAccumulators_[i] += dtSeconds * stepsPerSecond;
-    while (cycleAccumulators_[i] >= 1.0) {
-      cycleAccumulators_[i] -= 1.0;
-      if (r.flags & 2) {
-        std::rotate(colors_.begin() + r.low, colors_.begin() + r.low + 1, colors_.begin() + r.high + 1);
-      } else {
-        std::rotate(colors_.begin() + r.low, colors_.begin() + r.high, colors_.begin() + r.high + 1);
-      }
-    }
-  }
-}
-
 }  // namespace encore
