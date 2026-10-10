@@ -12,7 +12,6 @@ namespace encore {
 AudioDevice::~AudioDevice() { close(); }
 
 bool AudioDevice::open(int sampleRate) {
-  rate_ = sampleRate;
   SDL_AudioSpec spec{};
   spec.format = SDL_AUDIO_F32;
   spec.channels = 2;

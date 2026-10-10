@@ -61,7 +61,6 @@ class MusicDriver : public SoundDriver {
   /// from there. (The driver's own stop silences the channels for good.)
   bool holdOnStop = false;
   /// Function 0x18: both sides the same.
-  void setMono(bool mono) { mono_ = mono; }
   /// This version's own mixing, balanced between the driver's and a smooth one, or the
   /// driver's own. Balanced, a sample is read half from its nearest byte, as the driver takes
   /// it, and half from between its bytes (an eight-point windowed sinc); each channel is heard
@@ -149,7 +148,7 @@ class MusicDriver : public SoundDriver {
   std::atomic<u32> ticks_{0};
   u16 master_ = 0xff;
   bool held_ = false;                     ///< stopped by this version's pause
-  bool playing_ = false, loaded_ = false, mono_ = false;
+  bool playing_ = false, loaded_ = false;
   std::atomic<bool> balanced_{true};
   /// The balanced mixing's tone: a little more bass and treble, the middle as it is. Two
   /// shelving filters (the RBJ cookbook's) on each side, their state carried from one helping

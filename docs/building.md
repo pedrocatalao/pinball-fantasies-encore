@@ -88,11 +88,11 @@ in the folder SDL keeps for the platform, under `Encore/Pinball Fantasies`
 | `src/engine/audio` | The sound driver the tables and the menu talk to, playing their music modules |
 | `src/engine/view` | A table's screen, and what the high-resolution pictures need to know of it |
 | `src/engine/game` | A table as the game plays it, recordings of games, and the slides and the menu |
-| `src/engine/data`, `src/engine/sim` | Reading a table's pictures and masks; an earlier model of the ball, kept for its tests |
+| `src/engine/data`, `src/engine/sim` | Reading a table's files: its pictures, masks and sounds |
 | `src/game` | Application shell and the options and high-score files |
 | `assets/hd` | Redrawn, high-resolution pictures drawn in place of the originals: the intro's slides, the menu's side panel, table banners and high-score heading, each table's playfield lit and unlit, the flippers and the ball; and, per table, what hides the ball on the playfield and on the ramps (`hides_ball<n>_playfield.png`, `hides_ball<n>_ramps.png`: black hides it, white shows it, pure red is clear plastic it is seen through greyed) |
 | `assets/app` | The application icon, built into `icon.icns` at build time |
-| `src/gfx`, `shaders` | Indexed framebuffer, palette, OpenGL renderer; `post.frag` is the hook for CRT-style effects and is hot-reloaded |
+| `src/gfx`, `shaders` | Indexed framebuffer, palette, OpenGL renderer; `post.frag` presents the picture, `crt-lottes.frag` gives the CRT look, and the shaders are hot-reloaded |
 | `src/platform` | SDL3 window, audio device, finding the game files, fetching over HTTP |
 | `src/core`, `src/data` | Types, files, PNG, deflate and zip, SHA-256, IFF pictures, the game-version check |
 | `tests` | Pure-logic tests, and tests that play full games when the game files are present |

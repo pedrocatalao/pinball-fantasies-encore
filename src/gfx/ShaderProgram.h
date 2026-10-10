@@ -20,7 +20,6 @@ class ShaderProgram {
   void use() const;
   GLuint id() const { return program_; }
   GLint uniform(const char* name) const;
-  const std::string& lastError() const { return error_; }
 
  private:
   bool compileFromFiles();

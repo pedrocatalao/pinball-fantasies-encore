@@ -241,8 +241,7 @@ void Renderer::setRowPalettes(const Rgb* colors, int rows) {
   }
 }
 
-void Renderer::draw(const Framebuffer& frame, int windowWidth, int windowHeight, double timeSeconds,
-                    const HdFrame* hd) {
+void Renderer::draw(const Framebuffer& frame, int windowWidth, int windowHeight, const HdFrame* hd) {
   if (frame.width() != frameW_ || frame.height() != frameH_) resizeSource(frame.width(), frame.height());
   glBindVertexArray(vao_);
   glDisable(GL_DEPTH_TEST);
@@ -303,7 +302,6 @@ void Renderer::draw(const Framebuffer& frame, int windowWidth, int windowHeight,
   glUniform1i(postPass_.uniform("uScene"), 0);
   glUniform2f(postPass_.uniform("uSceneSize"), static_cast<float>(scene.w), static_cast<float>(scene.h));
   glUniform2f(postPass_.uniform("uOutputSize"), static_cast<float>(vw), static_cast<float>(vh));
-  glUniform1f(postPass_.uniform("uTime"), static_cast<float>(timeSeconds));
   glUniform1f(postPass_.uniform("uFilter"), smoothEdges_ ? 1.0f : 0.0f);
   glDrawArrays(GL_TRIANGLES, 0, 3);
   glBindVertexArray(0);

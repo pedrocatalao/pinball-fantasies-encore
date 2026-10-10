@@ -430,7 +430,7 @@ void TableGame::frame() {
     Recording::Game g;
     g.endFrame = frames_;
     // (the last ball's number is one past the balls there are, once it has been played)
-    g.abandoned = engine_->exited() || !failure_.empty() || engine_->B(0x33dc) <= engine_->B(0x33dd);
+    g.abandoned = !failure_.empty() || engine_->B(0x33dc) <= engine_->B(0x33dd);
     for (int p = 0; p < players(); ++p) g.scores.push_back(score(p));
     const HighScores best = highScores();
     if (!g.scores.empty())

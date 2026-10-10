@@ -21,14 +21,12 @@ class AudioDevice {
   void close();
   /// Replaces the source; safe to call while audio is playing. An empty source is silence.
   void setSource(Source source);
-  int sampleRate() const { return rate_; }
 
  private:
   static void SDLCALL callback(void* userdata, SDL_AudioStream* stream, int additionalAmount, int totalAmount);
   SDL_AudioStream* stream_ = nullptr;
   std::mutex mutex_;
   Source source_;
-  int rate_ = 48000;
   std::vector<float> scratch_;
 };
 

@@ -73,10 +73,6 @@ class Engine : public Program {
   bool amended = false;
   /// As the silent driver: the music's callback is called every time the driver is polled.
   bool pollCallsMusic = true;
-  /// The sound driver's question at each jump in the music (cs:3a6a): the place the music
-  /// names, and the place to go to instead. For a driver that plays; the silent one is
-  /// answered through `pollCallsMusic`.
-  u8 musicAsks(u8 place) { return musicCallback(place); }
   /// The original lets the number of players be put below the player whose turn it is while
   /// more may still join, and then goes astray (docs/own-engine.md). With this, such a key
   /// is taken for no key.
@@ -86,8 +82,6 @@ class Engine : public Program {
   /// from `seed`: one number each time the game asks for one, and nothing in between, so the
   /// same game comes of the same seed on any machine.
   void seedChance(u64 seed) { generator_.emplace(seed); }
-  /// How many numbers have been drawn from it.
-  u32 chancesDrawn() const { return drawn_; }
   /// The original keeps a first ball back half a second longer than the others, while more
   /// players may still be added. With this, every ball is served alike.
   bool servesAlike = false;
@@ -287,8 +281,6 @@ class Engine : public Program {
   void patchMask(u16 partyLandSegment, u16 at, u16 nativeShape, u16 width, u16 rows);
   /// The same by the table's own segment; `step` is how far apart the shape's rows are.
   void copyShape(u16 nativeSegment, u16 at, u16 nativeShape, u16 width, u16 rows, u16 step);
-  /// Called when a collision mask changes, for whoever keeps a copy.
-  virtual void maskChanged(u16 nativeSegment, u16 offset, u8 value) { (void)nativeSegment, (void)offset, (void)value; }
 
   /// A routine not written yet: says so, with its place.
   void todo(u16 partyLandAddress) { call(F(partyLandAddress)); }
@@ -299,7 +291,6 @@ class Engine : public Program {
   /// original makes of its count of loops at this place.
   u16 chance(u16 n, u16 counted) {
     if (!generator_) return counted;
-    ++drawn_;
     return static_cast<u16>((*generator_)() % n);
   }
   bool drawsChance() const { return generator_.has_value(); }
@@ -316,7 +307,6 @@ class Engine : public Program {
   std::array<Step, kSteps> steps_{};
   std::size_t stepsKept_ = 0;
   std::optional<std::mt19937_64> generator_;
-  u32 drawn_ = 0;
   std::array<std::vector<u8>, 2> slopes_;  ///< the slope at each stretch of eight dots, playfield and ramps
   std::array<bool, 64> waiting_{};     ///< the timers started in this frame's turn, to be run from the next
   std::array<bool, 64> startedNow_{};  ///< and the ones to be run in this turn yet

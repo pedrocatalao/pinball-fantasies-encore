@@ -204,7 +204,6 @@ void Engine::copyShape(u16 native, u16 at, u16 shape, u16 width, u16 rows, u16 s
     for (u16 x = 0; x < width; ++x) {
       const u8 v = nativeB(static_cast<u16>(shape + x));
       farB(native, static_cast<u16>(at + x)) = v;
-      maskChanged(native, static_cast<u16>(at + x), v);
     }
 }
 

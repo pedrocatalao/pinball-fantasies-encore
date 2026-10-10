@@ -367,7 +367,6 @@ void Engine::stampFlippers() {
       for (u16 b = 0; b < width; ++b) {
         const u8 v = farB(from, source++);
         farB(walls, static_cast<u16>(to + b)) = v;
-        maskChanged(walls, static_cast<u16>(to + b), v);
       }
   }
 }

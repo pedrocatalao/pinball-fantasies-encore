@@ -784,7 +784,7 @@ bool App::askYesNo(std::span<const std::string_view> lines) {
     int w = 0, h = 0;
     window_.drawableSize(w, h);
     renderer_.setPalette(palette_);
-    renderer_.draw(frame_, w, h, 0.0);
+    renderer_.draw(frame_, w, h);
     window_.swap();
     SDL_Delay(16);
   }
@@ -814,7 +814,7 @@ void App::drawWaiting(double seconds, std::string_view line, std::string_view de
   int w = 0, h = 0;
   window_.drawableSize(w, h);
   renderer_.setPalette(palette_);
-  renderer_.draw(frame_, w, h, std::max(0.0, seconds));
+  renderer_.draw(frame_, w, h);
   window_.swap();
 }
 
@@ -951,7 +951,7 @@ bool App::offerRelease() {
   return false;
 }
 
-void App::render(double now) {
+void App::render() {
   std::array<Rgb, 256> colors{};
   // Only when the replacements will really be drawn: the table leaves the flippers out of the
   // frame for the renderer to put back, so with them off it must draw everything itself.
@@ -976,7 +976,7 @@ void App::render(double now) {
   window_.drawableSize(w, h);
   renderer_.setPalette(palette_);
   const auto beforeDraw = std::chrono::steady_clock::now();
-  renderer_.draw(frame_, w, h, now, &hd_);
+  renderer_.draw(frame_, w, h, &hd_);
   if (options_.video && replaying_ && replayFrame_ >= static_cast<u32>(options_.videoFrom * 60)) captureFrame(w, h);
   if (options_.screenshot && ++frameCounter_ >= options_.screenshotFrame) {
     std::vector<u8> rgb(static_cast<std::size_t>(w) * h * 3);
@@ -1047,7 +1047,7 @@ int App::run() {
         reloadTimer = 0;
         renderer_.pollShaderReload();
       }
-      render(std::chrono::duration<double>(nowT - start).count());
+      render();
     }
   } catch (const std::exception& e) {
     // Whatever went wrong, it is said out loud rather than ending the program in silence.

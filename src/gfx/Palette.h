@@ -17,12 +17,8 @@ class Palette {
   /// Copies the palette in 6-bit VGA precision (x/4*4), matching what the DAC displayed.
   void quantizeTo6Bit();
 
-  /// Advances Deluxe Paint colour cycles; `dtSeconds` since last call.
-  void cycle(const std::vector<ColorRange>& ranges, double dtSeconds);
-
  private:
   std::array<Rgb, 256> colors_{};
-  std::vector<double> cycleAccumulators_;
 };
 
 }  // namespace encore
