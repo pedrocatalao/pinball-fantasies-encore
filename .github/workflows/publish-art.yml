@@ -29,9 +29,24 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
+      # The pictures are published made smaller, without a pixel changed (server/optimize-art.sh).
+      # oxipng is pinned: the same version makes the same files, so the same pictures publish nothing.
+      - name: Tools to make the pictures smaller
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/oxipng.tar.gz" \
+            https://github.com/oxipng/oxipng/releases/download/v10.2.1/oxipng-10.2.1-x86_64-unknown-linux-musl.tar.gz
+          echo "1813750ef592c5350ca79c88f98b2c0876d05c826dc7156245256d4255c1ad17  $RUNNER_TEMP/oxipng.tar.gz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/oxipng.tar.gz" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/oxipng-10.2.1-x86_64-unknown-linux-musl" >> "$GITHUB_PATH"
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install --quiet pillow==12.3.0 numpy==2.5.3
+      - name: Make the pictures smaller
+        env:
+          PYTHON: ${{ runner.temp }}/venv/bin/python
+        run: server/optimize-art.sh "$RUNNER_TEMP/hd"
       - name: Publish
         env:
           ENCORE_API: ${{ vars.ENCORE_API }}
           PUBLISH_TOKEN: ${{ secrets.PUBLISH_TOKEN }}
           ART_FORMAT: ${{ github.event.inputs.format || '1' }}
-        run: server/publish-art.sh
+        run: server/publish-art.sh "$RUNNER_TEMP/hd"
