@@ -21,6 +21,11 @@ uniform int uDots;             // 1: the scene is at the frame's resolution, and
 // resolution instead, in the colour of its pixel over the colour between them. (As palette.frag does
 // when it draws at the screen's resolution.)
 const float kDotRadius = 0.62;  // in the scene's pixels; the dots are two apart
+// And a little glow: each dot lights the dark around it in its own colour, less the further
+// from it and the dimmer it is (an unlit dot hardly at all), the glows of dots near each other
+// adding up.
+const float kGlow = 0.3;         // how bright the glow is at a dot's edge, of the dot's own
+const float kGlowReach = 0.7;     // in the scene's pixels: how far it fades (to about a third)
 
 vec3 sceneAt(ivec2 p) { return texelFetch(uScene, clamp(p, ivec2(0), ivec2(uSceneSize) - 1), 0).rgb; }
 
@@ -41,11 +46,24 @@ void main() {
   if (uDots != 0 && uDisplayTop >= 0 && f.y >= float(uDisplayTop)) {
     vec2 local = f - vec2(0.0, float(uDisplayTop));
     vec2 cell = floor((local - 0.5) / 2.0 + 0.5);    // the nearest dot
+    // (the texture's rows are bottom-up)
+    int bottom = int(uSceneSize.y) - 1;
     ivec2 lit = ivec2(cell * 2.0) + ivec2(0, uDisplayTop);
-    ivec2 lit0 = ivec2(lit.x, int(uSceneSize.y) - 1 - lit.y);  // (the texture's rows are bottom-up)
+    vec3 dark = sceneAt(ivec2(lit.x + 1, bottom - lit.y - 1));
     float d = length((local - (cell * 2.0 + 0.5)) * screen);
     float on = clamp(kDotRadius * min(screen.x, screen.y) - d + 0.5, 0.0, 1.0);
-    fragColor = vec4(mix(sceneAt(lit0 + ivec2(1, -1)), sceneAt(lit0), on), 1.0);
+    vec3 c = mix(dark, sceneAt(ivec2(lit.x, bottom - lit.y)), on);
+    vec3 glow = vec3(0.0);
+    for (int dy = -1; dy <= 1; ++dy)
+      for (int dx = -1; dx <= 1; ++dx) {
+        vec2 other = cell + vec2(dx, dy);
+        ivec2 at = ivec2(other * 2.0) + ivec2(0, uDisplayTop);
+        float r = max(length(local - (other * 2.0 + 0.5)) - kDotRadius, 0.0) / kGlowReach;
+        vec3 o = sceneAt(ivec2(at.x, bottom - at.y));
+        float lum = max(o.r, max(o.g, o.b));
+        glow += max(o - dark, 0.0) * exp(-r * r) * lum * lum;
+      }
+    fragColor = vec4(min(c + glow * kGlow * (1.0 - on), vec3(1.0)), 1.0);
     return;
   }
   vec2 uv = uFilter < 0.5 ? (floor(vUv * uSceneSize) + 0.5) / uSceneSize : sharpUv(vUv);
