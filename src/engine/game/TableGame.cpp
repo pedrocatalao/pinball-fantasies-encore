@@ -228,6 +228,11 @@ void TableGame::syncMusic() {
     recording_.events.push_back({frames_, Recording::Event::Kind::Music, link_->view()});
 }
 
+void TableGame::say(std::string_view text) {
+  engine_->write(text);
+  pauseFrames_ = 0;
+}
+
 void TableGame::pausedKey(Key key) {
   switch (key) {
     case Key::A:
@@ -394,7 +399,7 @@ void TableGame::frame() {
       if (!wasPaused_) pauseFrames_ = 0;
       ++pauseFrames_;
       if (pauseFrames_ == 120) engine_->write("P TO UNPAUSE");
-      else if (pauseFrames_ == 240) engine_->write("ASMR FOR OPTIONS");
+      else if (pauseFrames_ == 240) engine_->write("ASMRD FOR OPTIONS");
       else if (pauseFrames_ == 360) {
         engine_->write("GAME PAUSED");
         pauseFrames_ = 0;
@@ -468,6 +473,7 @@ void TableGame::draw(u8* frame, Rgb* colours, HdFrame* hd) const {
   view.top = viewTop();
   view.lamps = lamps_;
   view.ballTrail = ballTrail;
+  view.displayTop = dotMatrixTop;
   screen_->draw(*engine_, frame, view, hd);
   screen_->colours(*engine_, colours, lamps_);
   if (engine_->exited()) {  // cs:4f3c: every colour by how bright the table still is

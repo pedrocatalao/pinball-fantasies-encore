@@ -773,6 +773,26 @@ void TableScreen::draw(Engine& e, u8* frame, const View& v, HdFrame* hd) const {
     u8* out = frame + static_cast<std::size_t>(view + y) * kWidth;
     for (int x = 0; x < kWidth; ++x) out[x] = video[static_cast<std::size_t>(x & 3)][static_cast<std::size_t>(y * 0x54 + (x >> 2))];
   }
+  // The display above the playfield instead (View::displayTop): the whole frame drawn as above,
+  // its last rows taken to the top, and all the rest -- the playfield, what the pictures drawn
+  // again need of each dot of it, the flippers and the ball -- that many rows lower. The display's
+  // first rows, the black between it and the playfield, go below its dots, still between the two.
+  if (v.displayTop) {
+    const auto rows = [&](auto* p) {
+      const auto row = [&](int y) { return p + static_cast<std::size_t>(y) * kWidth; };
+      std::rotate(p, row(view), row(height));
+      std::rotate(p, row(kDisplayGap), row(kDisplayRows));
+    };
+    rows(frame);
+    if (hd) {
+      rows(hd->map.data());
+      for (HdSprite& s : hd->sprites) {
+        s.pivotFrameY += static_cast<float>(kDisplayRows);
+        s.clipTop += static_cast<float>(kDisplayRows);
+        s.clipBottom += static_cast<float>(kDisplayRows);
+      }
+    }
+  }
 }
 
 std::vector<bool> TableScreen::flipperIsLeft(Engine& e) const {

@@ -54,11 +54,12 @@ class Front {
   void setPanelStrip(int width, int height) { stripWidth_ = width, stripHeight_ = height; }
   int height() const { return tall() ? 2 * kHeight : kHeight; }
 
-  /// ARTWORK and AUDIO as they are now, whatever the options page last said (the keys change them
-  /// anywhere): the page shows them so the next time it opens.
-  void setLooks(bool originalSound, bool originalPictures) {
+  /// ARTWORK, AUDIO and DOT MATRIX as they are now, whatever the options page last said (keys
+  /// change them anywhere): the page shows them so the next time it opens.
+  void setLooks(bool originalSound, bool originalPictures, bool dotMatrixTop) {
     options_.originalSound = saved_.originalSound = originalSound;
     options_.originalPictures = saved_.originalPictures = originalPictures;
+    options_.dotMatrixTop = saved_.dotMatrixTop = dotMatrixTop;
   }
   MusicDriver& music() { return music_; }
   void sound(float* out, int frames) { music_.render(out, frames); }

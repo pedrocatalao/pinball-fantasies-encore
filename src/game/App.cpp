@@ -266,6 +266,10 @@ bool App::init() {
     balancedSound_ = !saved || saved->empty() || (*saved)[0] != '0';
   }
   {
+    const auto saved = file::readAll(saveDir_ / "dotmatrix.txt");
+    dotMatrixTop_ = saved && !saved->empty() && (*saved)[0] == '1';
+  }
+  {
     const auto saved = file::readAll(saveDir_ / "trail.txt");
     ballTrail_ = options_.trail.value_or(!saved || saved->empty() || (*saved)[0] != '0');
     if (options_.trail) setBallTrail(*options_.trail);
@@ -403,11 +407,21 @@ void App::setBalancedSound(bool on) {
   showLooks();
 }
 
+/// The dot display above the table or below it, remembered for next time.
+void App::setDotMatrixTop(bool on) {
+  dotMatrixTop_ = on;
+  const char c = on ? '1' : '0';
+  file::writeAll(saveDir_ / "dotmatrix.txt", ByteView(reinterpret_cast<const u8*>(&c), 1));
+  log::info(std::string("the dot display ") + (on ? "above the table" : "below the table"));
+  showLooks();
+}
+
 void App::showLooks() {
   config_.options.originalSound = !balancedSound_;
   config_.options.originalPictures = !renderer_.hdEnabled();
+  config_.options.dotMatrixTop = dotMatrixTop_;
   if (intro_) {
-    intro_->setLooks(config_.options.originalSound, config_.options.originalPictures);
+    intro_->setLooks(config_.options.originalSound, config_.options.originalPictures, dotMatrixTop_);
     intro_->music().setBalanced(balancedSound_);
   }
   if (table_) table_->music().setBalanced(balancedSound_);
@@ -424,7 +438,7 @@ void App::setBallTrail(bool on) {
 void App::resizeFrame(int width, int height, double pixelAspect, int displayRows) {
   if (frame_.width() != width || frame_.height() != height) frame_ = Framebuffer(width, height);
   renderer_.setPixelAspect(options_.squarePixels ? 1.0 : pixelAspect);
-  renderer_.setDisplayRows(displayRows);
+  renderer_.setDisplay(displayRows, dotMatrixTop_);
 }
 
 void App::openIntro(int returningFrom) {
@@ -649,6 +663,13 @@ void App::handleKey(const SDL_Event& e) {
     setBallTrail(!ballTrail_);
     return;
   }
+  // And beside the pause's options (A, S, M, R): the dot display above the table or below it.
+  // The viewer's, like the trail: not one of the game's keys, and not in its recording.
+  if (e.type == SDL_EVENT_KEY_DOWN && e.key.key == SDLK_D && table_ && table_->paused()) {
+    setDotMatrixTop(!dotMatrixTop_);
+    table_->say(dotMatrixTop_ ? "DOT MATRIX TOP" : "DOT MATRIX BOTTOM");
+    return;
+  }
   const Key k = keyFor(e.key.key);
   if (k == Key::None) return;
   const bool down = e.type == SDL_EVENT_KEY_DOWN;
@@ -682,6 +703,7 @@ void App::update(double dt) {
           // and this version's two, as the page left them
           if (config_.options.originalSound == balancedSound_) setBalancedSound(!config_.options.originalSound);
           if (config_.options.originalPictures == renderer_.hdEnabled()) setHd(!config_.options.originalPictures);
+          if (config_.options.dotMatrixTop != dotMatrixTop_) setDotMatrixTop(config_.options.dotMatrixTop);
           break;
         case Kind::Quit: running_ = false; return;
         case Kind::None: break;
@@ -968,6 +990,7 @@ void App::render() {
     resizeFrame(encore::Front::kWidth, intro_->height(), 1.0);
   if (table_) {
     table_->ballTrail = ballTrail_;
+    table_->dotMatrixTop = dotMatrixTop_;
     table_->draw(frame_.data(), colors.data(), hd);
   }
   else if (intro_)

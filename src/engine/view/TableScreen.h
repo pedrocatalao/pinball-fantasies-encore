@@ -24,6 +24,7 @@ class TableScreen {
  public:
   static constexpr int kWidth = 320;
   static constexpr int kDisplayRows = 33;
+  static constexpr int kDisplayGap = 2;  // its first rows, always black: the dots begin below them
 
   TableScreen(const std::filesystem::path& prg, int table);
   TableScreen(Bytes prg, int table);
@@ -38,6 +39,7 @@ class TableScreen {
     /// 0: the lights as the game has them; 1: every one lit; 2: every one out.
     int lamps = 0;
     bool ballTrail = true;
+    bool displayTop = false;  ///< the display's rows above the playfield's instead of below them
   };
   /// One frame: `height` rows of 320 colours of the palette (see colours()). With `hd`, also
   /// what the high-resolution pictures need; the ball is then left out of the frame, to be
