@@ -267,6 +267,11 @@ void Renderer::draw(const Framebuffer& frame, int windowWidth, int windowHeight,
   palettePass_.use();
   glUniform1i(palettePass_.uniform("uIndices"), 0);
   glUniform1i(palettePass_.uniform("uPalette"), 1);
+  // (the dots are drawn by the first pass that is at the screen's resolution: this one with the
+  // replacement pictures, the last one without them)
+  const int displayTop = displayRows_ > 0 ? frameH_ - displayRows_ : -1;
+  glUniform1i(palettePass_.uniform("uDisplayTop"), displayTop);
+  glUniform1i(palettePass_.uniform("uDots"), withHd ? 1 : 0);
   glDrawArrays(GL_TRIANGLES, 0, 3);
   if (withHd) {
     drawHd(*hd);
@@ -303,6 +308,8 @@ void Renderer::draw(const Framebuffer& frame, int windowWidth, int windowHeight,
   glUniform2f(postPass_.uniform("uSceneSize"), static_cast<float>(scene.w), static_cast<float>(scene.h));
   glUniform2f(postPass_.uniform("uOutputSize"), static_cast<float>(vw), static_cast<float>(vh));
   glUniform1f(postPass_.uniform("uFilter"), smoothEdges_ ? 1.0f : 0.0f);
+  glUniform1i(postPass_.uniform("uDisplayTop"), displayTop);
+  glUniform1i(postPass_.uniform("uDots"), withHd ? 0 : 1);
   glDrawArrays(GL_TRIANGLES, 0, 3);
   glBindVertexArray(0);
 }
