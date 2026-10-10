@@ -164,6 +164,10 @@ fetched, or encore-play stops) waits behind the others and is tried again; after
 is rejected as one that could not be checked. A verdict counts once: one sent for a game
 already settled is refused (409).
 
+The verifier is built from the newest code on main, and checks games sent by released versions
+(each says which, in `X-Encore-Version`, kept beside it). That holds because main may not change
+how a recorded game plays: see the end of "The game" in [own-engine.md](../docs/own-engine.md#the-game).
+
 A player is an installation of the game: it makes a secret token the first time it sends a
 game (kept in `online.txt` beside the high scores) and the server gives it a public tag of
 five hexadecimal digits. A score shows the initials typed for it and the tag, `RDX (4e87a)`,

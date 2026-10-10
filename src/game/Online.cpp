@@ -10,6 +10,7 @@
 
 #include "core/File.h"
 #include "core/Log.h"
+#include "game/Release.h"
 #include "platform/Http.h"
 
 namespace encore {
@@ -63,11 +64,13 @@ void sendAll(const std::filesystem::path& saveDir) {
   if (waiting.empty()) return;
   std::sort(waiting.begin(), waiting.end());
   const std::string url = onlineApi() + "/v1/runs", auth = "Authorization: Bearer " + token(saveDir);
+  // (which version played it, kept beside the game on the server: "dev" for a build of no release)
+  const std::string version = "X-Encore-Version: " + std::string(thisRelease().empty() ? "dev" : thisRelease());
   for (const auto& path : waiting) {
     const auto data = file::readAll(path);
     if (!data) continue;
     std::string error;
-    const auto reply = httpPost(url, *data, {auth, "Content-Type: application/octet-stream"}, &error);
+    const auto reply = httpPost(url, *data, {auth, version, "Content-Type: application/octet-stream"}, &error);
     const std::string name = path.filename().string();
     if (!reply) {
       log::info("online scores: " + name + " not sent (" + error + "); it will be tried again");

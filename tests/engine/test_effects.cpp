@@ -18,8 +18,8 @@ namespace {
 constexpr u8 kSlingshot = 29, kFlipper = 25, kBumper = 24;  // SIDOBUMPER, FLIPPERUPP and BUMPER in TABLE2.MOD
 
 bool haveData() {
-  static const bool ok = std::filesystem::exists(test::gameDir()) && unsupportedGameFiles(test::gameDir()).empty();
-  if (!ok) std::printf("  (skipped: no supported game files at %s)\n", test::gameDir().string().c_str());
+  static const bool ok = test::haveTables();
+  if (!ok) std::printf("  (skipped: no supported table files at %s)\n", test::gameDir().string().c_str());
   return ok;
 }
 

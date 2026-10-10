@@ -41,6 +41,32 @@ jobs:
       - name: Build
         run: cmake --build build --config RelWithDebInfo -j3
 
+      # The tests that play whole games need the game's table files, which are never in the
+      # repository: they are fetched from the server as the score checking does (server/verify.sh),
+      # into the runner's own temporary folder, and then required, so that those tests cannot pass
+      # by being skipped. Without the token (pull requests from forks) they are skipped instead.
+      - name: Fetch the game's table files
+        shell: pwsh
+        env:
+          ENCORE_API: ${{ vars.ENCORE_API }}
+          VERIFIER_TOKEN: ${{ secrets.VERIFIER_TOKEN }}
+        run: |
+          if (-not $env:VERIFIER_TOKEN -or -not $env:ENCORE_API) {
+            Write-Output "no token here: the tests that need the game's files are skipped"
+            exit 0
+          }
+          $dir = Join-Path $env:RUNNER_TEMP "game-files"
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          $headers = @{ Authorization = "Bearer $env:VERIFIER_TOKEN" }
+          foreach ($n in 1..4) {
+            foreach ($ext in "PRG", "MOD") {
+              Invoke-WebRequest -Uri "$env:ENCORE_API/v1/verifier/files/TABLE$n.$ext" -Headers $headers `
+                -OutFile (Join-Path $dir "TABLE$n.$ext") -MaximumRetryCount 3
+            }
+          }
+          "ENCORE_DATA=$dir" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "ENCORE_REQUIRE_DATA=1" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
       - name: Test
         run: ctest --test-dir build -C RelWithDebInfo --output-on-failure
 
