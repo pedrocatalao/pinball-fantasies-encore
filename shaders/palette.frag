@@ -17,11 +17,6 @@ uniform int uDots;             // 1: this pass is at the screen's resolution, an
 // pixels by turns, which shimmers; so each dot is drawn here as a round lamp at the screen's own
 // resolution instead, in the colour of its pixel over the colour between them.
 const float kDotRadius = 0.62;  // in the frame's pixels; the dots are two apart
-// And a little glow: each dot lights the dark around it in its own colour, less the further
-// from it and the dimmer it is (an unlit dot hardly at all), the glows of dots near each other
-// adding up.
-const float kGlow = 0.3;         // how bright the glow is at a dot's edge, of the dot's own
-const float kGlowReach = 0.7;     // in the frame's pixels: how far it fades (to about a third)
 
 vec3 colourAt(ivec2 p) {
   ivec2 size = textureSize(uIndices, 0);
@@ -40,20 +35,9 @@ void main() {
     vec2 local = f - vec2(0.0, float(uDisplayTop));
     vec2 cell = floor((local - 0.5) / 2.0 + 0.5);    // the nearest dot
     ivec2 lit = ivec2(cell * 2.0) + ivec2(0, uDisplayTop);
-    vec3 dark = colourAt(lit + ivec2(1, 1));
     float d = length((local - (cell * 2.0 + 0.5)) * screen);
     float on = clamp(kDotRadius * min(screen.x, screen.y) - d + 0.5, 0.0, 1.0);
-    vec3 c = mix(dark, colourAt(lit), on);
-    vec3 glow = vec3(0.0);
-    for (int dy = -1; dy <= 1; ++dy)
-      for (int dx = -1; dx <= 1; ++dx) {
-        vec2 other = cell + vec2(dx, dy);
-        float r = max(length(local - (other * 2.0 + 0.5)) - kDotRadius, 0.0) / kGlowReach;
-        vec3 o = colourAt(ivec2(other * 2.0) + ivec2(0, uDisplayTop));
-        float lum = max(o.r, max(o.g, o.b));
-        glow += max(o - dark, 0.0) * exp(-r * r) * lum * lum;
-      }
-    fragColor = vec4(min(c + glow * kGlow * (1.0 - on), vec3(1.0)), 1.0);
+    fragColor = vec4(mix(colourAt(lit + ivec2(1, 1)), colourAt(lit), on), 1.0);
     return;
   }
   fragColor = vec4(colourAt(ivec2(floor(f))), 1.0);
