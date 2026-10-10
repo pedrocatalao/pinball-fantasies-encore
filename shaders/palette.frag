@@ -8,10 +8,11 @@ in vec2 vUv;
 out vec4 fragColor;
 uniform usampler2D uIndices;   // R8UI, native resolution
 uniform sampler2D uPalette;    // 256 x rows RGB
-uniform int uDisplayTop;       // the frame's row where the dot display begins; -1 for none
+uniform int uDisplayTop;       // the frame's row where the dot display begins (its last rows, or its first); -1 for none
+uniform int uDisplayRows;      // and how many rows it has
 uniform int uDots;             // 1: this pass is at the screen's resolution, and draws the dots
 
-// The table's dot display (its last rows, from uDisplayTop down): a dot is one pixel of the
+// The table's dot display (uDisplayRows rows from uDisplayTop down): a dot is one pixel of the
 // frame on every other column and every other row, with dark pixels between. Enlarged by a
 // factor that is not a whole number, single pixels and single gaps come out one and two screen
 // pixels by turns, which shimmers; so each dot is drawn here as a round lamp at the screen's own
@@ -31,13 +32,14 @@ void main() {
   ivec2 size = textureSize(uIndices, 0);
   vec2 f = vec2(vUv.x, 1.0 - vUv.y) * vec2(size);  // in the frame's pixels, rows top-down
   vec2 screen = 1.0 / max(fwidth(f), vec2(1e-6));   // screen pixels to a frame pixel
-  if (uDots != 0 && uDisplayTop >= 0 && f.y >= float(uDisplayTop)) {
+  if (uDots != 0 && uDisplayTop >= 0 && f.y >= float(uDisplayTop) && f.y < float(uDisplayTop + uDisplayRows)) {
     vec2 local = f - vec2(0.0, float(uDisplayTop));
     vec2 cell = floor((local - 0.5) / 2.0 + 0.5);    // the nearest dot
     ivec2 lit = ivec2(cell * 2.0) + ivec2(0, uDisplayTop);
     float d = length((local - (cell * 2.0 + 0.5)) * screen);
     float on = clamp(kDotRadius * min(screen.x, screen.y) - d + 0.5, 0.0, 1.0);
-    fragColor = vec4(mix(colourAt(lit + ivec2(1, 1)), colourAt(lit), on), 1.0);
+    // (the dark: the pixel beside the dot, in its own row, which is always the display's)
+    fragColor = vec4(mix(colourAt(lit + ivec2(1, 0)), colourAt(lit), on), 1.0);
     return;
   }
   fragColor = vec4(colourAt(ivec2(floor(f))), 1.0);

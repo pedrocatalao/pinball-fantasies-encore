@@ -74,7 +74,9 @@ constexpr u16 kTall = 0x49c8;    ///< the answer's place after it)
 constexpr u16 kOriginal = 0x49d0;
 constexpr u16 kRemaster = 0x49da;
 constexpr u16 kBalanced = 0x49e4;
-constexpr int kOptions = 8;      ///< the original's six, and ARTWORK and AUDIO; then saving
+constexpr u16 kBottom = 0x49ee;  ///< (past the question's words too, which are not shown either)
+constexpr u16 kTop = 0x49f5;
+constexpr int kOptions = 9;      ///< the original's six, and ARTWORK, AUDIO and DOT MATRIX; then saving
 
 }  // namespace
 
@@ -100,15 +102,18 @@ Front::Front(ByteView prg, ByteView module, const Config& config, int returningF
   std::memcpy(&ds(kOriginal), "ORIGINAL", 9);
   std::memcpy(&ds(kRemaster), "REMASTER", 9);
   std::memcpy(&ds(kBalanced), "BALANCED", 9);
-  // the page as the original has it, its six options, two more of this version's, and the rest
+  std::memcpy(&ds(kBottom), "BOTTOM", 7);
+  std::memcpy(&ds(kTop), "TOP   ", 7);
+  // the page as the original has it, its six options, three more of this version's, and the
+  // rest: without the empty line before it, as the page shows twelve lines and no more
   auto page = [&](u16 from, u16 to) { optionsPage_.insert(optionsPage_.end(), &ds(from), &ds(from) + (to - from)); };
   page(0x4e40, 0x4ede);
-  for (const char* label : {"  ARTWORK:", "  AUDIO:"}) {
+  for (const char* label : {"  ARTWORK:", "  AUDIO:", "  DOT MATRIX:"}) {
     std::string line(label);
     line.resize(0x18, ' ');
     optionsPage_.insert(optionsPage_.end(), line.begin(), line.end());
   }
-  page(0x4ede, 0x4ef8);
+  page(0x4edf, 0x4ef8);
 
   // cs:371f: the best scores, written into the two pages that show them
   static constexpr u16 kRows[4] = {0x4f31, 0x4fc1, 0x5051, 0x50e1};
@@ -715,7 +720,8 @@ void Front::optionText(int row, u16& words) {
     case 5: words = ds(0x49a8) ? 0x4e38 : 0x4e32; break;
     // this version's two
     case 6: words = options_.originalPictures ? kOriginal : kRemaster; break;
-    default: words = options_.originalSound ? kOriginal : kBalanced; break;
+    case 7: words = options_.originalSound ? kOriginal : kBalanced; break;
+    default: words = options_.dotMatrixTop ? kTop : kBottom; break;
   }
 }
 
@@ -731,6 +737,7 @@ void Front::changeOption(int row) {
     case 5: ds(0x49a8) ^= 1; break;
     case 6: options_.originalPictures = !options_.originalPictures; break;
     case 7: options_.originalSound = !options_.originalSound; break;
+    case 8: options_.dotMatrixTop = !options_.dotMatrixTop; break;
     default: optionsDone_ = true; break;
   }
   options_.balls = ds(0x49a3) ? 5 : 3;
@@ -762,7 +769,8 @@ Front::Task Front::chooseOptions() {
   optionRow_ = 0;
   for (bool moved = true;;) {
     if (moved) {  // cs:3f5a: the mark beside the row
-      const u16 y = static_cast<u16>((optionRow_ == kOptions ? kOptions + 1 : optionRow_) * 0x12 + 0x32);
+      // (saving is right under the last option: the empty line there made room for this version's)
+      const u16 y = static_cast<u16>(optionRow_ * 0x12 + 0x32);
       writeMode(1);
       peek(0x13);
       for (const u16 first : {u16{0x0fb5}, u16{0xbdd9}}) {
@@ -872,7 +880,8 @@ Front::Task Front::optionsMenu() {
   showing_ = Showing::Banners;
   if (options_.balls != saved_.balls || options_.angle != saved_.angle || options_.scrollSpeed != saved_.scrollSpeed ||
       options_.resolution != saved_.resolution || options_.noMusic != saved_.noMusic || options_.mono != saved_.mono ||
-      options_.originalSound != saved_.originalSound || options_.originalPictures != saved_.originalPictures) {
+      options_.originalSound != saved_.originalSound || options_.originalPictures != saved_.originalPictures ||
+      options_.dotMatrixTop != saved_.dotMatrixTop) {
     saved_ = options_;
     action_.kind = Action::Kind::SaveOptions;
   }

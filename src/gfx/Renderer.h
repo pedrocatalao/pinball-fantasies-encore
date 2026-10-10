@@ -25,9 +25,12 @@ class Renderer {
   void setPixelAspect(double aspect) { pixelAspect_ = aspect; }
   /// false draws with hard pixel edges, true softens only the edge that straddles two pixels.
   void setSmoothEdges(bool on) { smoothEdges_ = on; }
-  /// How many of the frame's last rows are a table's dot display, drawn as round dots at the
-  /// screen's resolution (palette.frag, post.frag); 0 for a screen without one.
-  void setDisplayRows(int rows) { displayRows_ = rows; }
+  /// How many of the frame's rows are a table's dot display, its last or its first, drawn as
+  /// round dots at the screen's resolution (palette.frag, post.frag); 0 for a screen without one.
+  void setDisplay(int rows, bool atTop) {
+    displayRows_ = rows;
+    displayAtTop_ = atTop;
+  }
   /// Presents the picture through the CRT-Lottes shader (shaders/crt-lottes.frag).
   void setCrt(bool on) { crt_ = on; }
   bool crt() const { return crt_; }
@@ -77,6 +80,7 @@ class Renderer {
   double pixelAspect_ = 1.0;
   bool smoothEdges_ = true;
   int displayRows_ = 0;
+  bool displayAtTop_ = false;
   Rect viewport_;
   ShaderProgram palettePass_;
   ShaderProgram postPass_;

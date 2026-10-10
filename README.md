@@ -127,6 +127,7 @@ The original key layout.
 | <kbd>S</kbd> | scrolling: hard, medium or soft |
 | <kbd>R</kbd> | resolution: normal, high, full or tall |
 | <kbd>M</kbd> | music on or off |
+| <kbd>D</kbd> | dot matrix above the table (like the Amiga) or below it (DOT MATRIX in the options) |
 | <kbd>↑</kbd> <kbd>↓</kbd> | scroll the table by hand |
 | <kbd>F7</kbd> | lamps: all on, all off, back to normal |
 | <kbd>F8</kbd> | ball trail on or off |

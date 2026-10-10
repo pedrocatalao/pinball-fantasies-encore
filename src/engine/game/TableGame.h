@@ -98,6 +98,9 @@ class TableGame {
   std::vector<bool> flipperIsLeft() const { return screen_ ? screen_->flipperIsLeft(*engine_) : std::vector<bool>{}; }
   Cutout ballPicture() const { return screen_ ? screen_->ballPicture(*engine_) : Cutout{}; }
   bool ballTrail = true;
+  bool dotMatrixTop = false;  ///< the display above the table (the viewer's choice, not the game's)
+  /// Says something on the display, as the pause's options do when one is changed.
+  void say(std::string_view text);
   /// The lamps as the game has them (0), all lit (1) or all out (2): for looking at the artwork.
   void showLamps(int how) { lamps_ = how; }
 

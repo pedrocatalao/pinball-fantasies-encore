@@ -27,10 +27,12 @@ struct Options {
   Resolution resolution = Resolution::Normal;
   bool noMusic = false;
   bool mono = false;
-  // This version's own, kept beside PINBALL.CFG (sfx.txt, hd.txt) rather than in it: the
-  // driver's own mixing rather than the remastered one, the 1994 pictures rather than the HD.
+  // This version's own, kept beside PINBALL.CFG (sfx.txt, hd.txt, dotmatrix.txt) rather than in
+  // it: the driver's own mixing rather than the remastered one, the 1994 pictures rather than
+  // the HD, and the dot display above the table rather than below it (as the Amiga's).
   bool originalSound = false;
   bool originalPictures = false;
+  bool dotMatrixTop = false;
 };
 
 struct HighScore {
