@@ -285,14 +285,16 @@ async function sendRun(env: Env, req: Request, ctx: ExecutionContext): Promise<R
   if (player === "busy") return fail(429, "too many new players just now; try again later");
   if (!player) return fail(503, "no room for a new player just now; try again later");
   const version = (req.headers.get("X-Encore-Version") ?? "").slice(0, 32) || null;
+  // (and what program sent it, as it names itself, for telling the builds apart)
+  const agent = (req.headers.get("User-Agent") ?? "").slice(0, 200) || null;
   // The game and its recording together or not at all (a batch is one transaction). The same
   // file or seed sent at the same moment by someone else meets the database's own uniqueness,
   // and then neither row is written: the answer is as for a copy.
   const [inserted] = await env.DB.batch([
     env.DB.prepare(
-      `INSERT INTO runs (player_id, replay_sha256, seed, format, client_version, submitted_at) VALUES (?, ?, ?, ?, ?, ?)
+      `INSERT INTO runs (player_id, replay_sha256, seed, format, client_version, user_agent, submitted_at) VALUES (?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT DO NOTHING RETURNING id`,
-    ).bind(player.id, hash, seed, format, version, now()),
+    ).bind(player.id, hash, seed, format, version, agent, now()),
     env.DB.prepare(
       `INSERT INTO replays (run_id, data) SELECT id, ?2 FROM runs
          WHERE replay_sha256 = ?1 AND NOT EXISTS (SELECT 1 FROM replays WHERE replays.run_id = runs.id)`,
