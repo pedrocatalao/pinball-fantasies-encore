@@ -4,6 +4,7 @@
 // engine's names (Names.inc). Each routine still says where it is in the program ("cs:1c68").
 #include <initializer_list>
 
+#include "engine/Values.h"
 #include "engine/table/Flow.h"
 
 namespace encore {
@@ -122,6 +123,8 @@ constexpr u16 modeRamp = 0x1270;  ///< and the one that counts ramps
 constexpr u16 modeHitScore = 0x1d3b;  ///< 12 digits
 constexpr u16 modeRampScore = 0x1e30;  ///< 12 digits
 constexpr u16 matchNumber = 0x23d2;  ///< word: the match's digit
+constexpr u16 matchWaitsLow = 0x0000;  ///< the match's list of waits (cvar::matchWaits),
+constexpr u16 matchWaitsHigh = 0x0048;  ///< and at the faster screen mode
 
 // --- the engine's, as this table has them (Party Land's names, where it has them)
 constexpr u16 musicNext = 0x2795;
@@ -504,6 +507,34 @@ constexpr u16 scrollTo = 0x369b;
 
 /// The segment of the tall picture that rolls down the display (cs:36c0).
 constexpr u16 tallPicture = 0x49ff;
+
+/// The table's place in the engine's maps (Maps.inc), as Flow takes it.
+constexpr int kTableIndex = 3;
+/// What var::scoreDrawn's digits are set to (no digit has it), so that each is drawn again.
+constexpr u8 kScoreUndrawn = 0x12;
+
+/// Places in the song (var::musicNext): the tunes' records', and
+/// those no record has.
+namespace songAt {
+constexpr u8 plunger = 0;  ///< tunes::plunger's
+constexpr u8 main = 1;  ///< tunes::main's
+constexpr u8 afterMode = 3;  ///< where the music goes as a mode ends
+constexpr u8 afterAttract = 9;  ///< and after the tune while nobody plays
+constexpr u8 towerHunt = 0x2e;  ///< the tower hunt's, a place on for each of its prizes,
+constexpr u8 towerHuntLast = 0x32;  ///< up to this one
+constexpr u8 silence = 0x34;  ///< ds:08ec
+}  // namespace songAt
+
+/// The display's fonts, as setFont takes them.
+namespace fonts {
+constexpr int dots5 = 3;  ///< 5 dots high
+}  // namespace fonts
+
+/// Where on the display things are drawn (drawText's place, var::drawAt).
+namespace dmAt {
+constexpr u16 matchPlayers = 0xa8;
+constexpr u16 matchDigits = 0x540;  ///< the match's digits, eight dots apart (+ digit << 3)
+}  // namespace dmAt
 }  // namespace stones
 
 class StonesNBones : public Flow {
@@ -525,7 +556,7 @@ class StonesNBones : public Flow {
     for (u16 i = 0; i < 12; ++i) b(static_cast<u16>(at + i)) = 0;
   }
   u8& lightState(u8 light) { return b(static_cast<u16>(stones::var::lightStates + light)); }
-  bool isLit(u8 light) { return lightState(light) == 0xff; }
+  bool isLit(u8 light) { return lightState(light) == kSet; }
   /// Does `what` to each light, in turn.
   void all(std::initializer_list<u8> which, void (StonesNBones::*what)(u8));
   /// The same to the nine targets' lights, the four BONE then the five STONE.
@@ -565,7 +596,7 @@ class StonesNBones : public Flow {
   void restorePlayer() override;          // cs:0d01
   void clearBall() override;              // cs:0056
   bool extraBallOwed() override { return b(stones::var::extraBalls) != 0; }
-  void matchWon() override { b(stones::var::matchWon) = 0xff; }
+  void matchWon() override { b(stones::var::matchWon) = kSet; }
   void gameOverLights() override {}
   bool clearsScoreAtEnd() override { return false; }
   bool restoresAtTurn() override { return false; }

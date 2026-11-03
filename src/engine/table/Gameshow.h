@@ -5,6 +5,7 @@
 // ("cs:1342").
 #include <array>
 
+#include "engine/Values.h"
 #include "engine/table/Flow.h"
 
 namespace encore {
@@ -249,15 +250,19 @@ constexpr u16 multiplier = 0x1cf7;  ///< the two of "XX BONUS"
 }  // namespace text
 
 /// A piece of a collision mask that comes and goes: where in the mask, and the shape put there
-/// open and shut.
+/// open and shut; then its width in bytes, its rows, and the bytes from one of
+/// its rows to the next in the shape. The last two keep three rows of bytes to each row of the
+/// mask, of which the middle one is put there: a step of three widths, from one
+/// width on.
 struct Shape {
   u16 at, open, shut;
+  u16 width, rows, step;
 };
 namespace shapes {
-constexpr Shape vaultEntry{0x0f00, 0x6190, 0x61e0};  ///< the ramps' mask
-constexpr Shape plungerGate{0x2fcb, 0x6230, 0x6280};
-constexpr Shape rampRightGate{0x198e, 0x6390, 0x6480};  ///< the ramps' mask
-constexpr Shape vaultExit{0x4fd8, 0x6570, 0x6620};
+constexpr Shape vaultEntry{0x0f00, 0x6190, 0x61e0, 3, 0x19, 3};  ///< the ramps' mask
+constexpr Shape plungerGate{0x2fcb, 0x6230, 0x6280, 2, 0x22, 2};
+constexpr Shape rampRightGate{0x198e, 0x6390, 0x6480, 4, 0x14, 12};  ///< the ramps' mask
+constexpr Shape vaultExit{0x4fd8, 0x6570, 0x6620, 4, 0x0e, 12};
 }  // namespace shapes
 /// A target that drops: where in the mask, its shape down and up, and its width.
 struct TargetShape {
@@ -384,6 +389,39 @@ constexpr u16 dropLeft1 = 0x0ee1;
 namespace cvar {
 constexpr u16 matchPace = 0x0762;
 }  // namespace cvar
+
+/// The table's place in the engine's maps (Flow's second argument).
+constexpr int kTableIndex = 2;
+/// What var::scoreDrawn's digits are set to, so that each is drawn again.
+constexpr u8 kScoreUndrawn = 0x12;
+/// A light's state set to 1, not ff, as the rules' own mark: a prize to collect
+/// (lights::collectPrize), and the ball more and the jackpot lit to be taken.
+constexpr u8 kMarked = 1;
+
+/// A prize's flag (var::prizeTv and the five others).
+namespace prize {
+constexpr u8 lit = 1;  ///< lit, to be collected in the vault
+constexpr u8 taken = 2;
+}  // namespace prize
+
+/// The four targets that drop, as target() numbers them.
+namespace drops {
+constexpr int center0 = 0, center1 = 1, left0 = 2, left1 = 3;
+}  // namespace drops
+
+/// The prize wheel: its eight places (var::wheelPos), and where each prize is on it.
+namespace wheel {
+constexpr u8 tv = 0, trip = 1, car = 2, plane = 4, house = 5, boat = 6;
+}  // namespace wheel
+
+/// Places in the song (var::musicNext): where the music goes on after a tune.
+namespace songAt {
+constexpr u8 plunger = 0x00;  ///< tunes::plunger's (and tunes::gameStart's)
+constexpr u8 main = 0x01;  ///< tunes::main's
+constexpr u8 afterMode = 0x03;  ///< after a mode's end: the main music past its opening
+constexpr u8 afterAttract = 0x09;  ///< after the tune while nobody plays
+constexpr u8 silence = 0x37;  ///< ds:08ad
+}  // namespace songAt
 }  // namespace show
 
 class Gameshow : public Flow {
@@ -416,18 +454,18 @@ class Gameshow : public Flow {
   void placeBall(show::Spot at) { placeBall(at.x, at.y); }
   /// The ball kept out of sight somewhere.
   void hold(show::Spot at) {
-    b(show::var::ballHidden) = 0xff;
+    b(show::var::ballHidden) = kSet;
     placeBall(at);
   }
 
   void savePlayer(u16 player) override;   // cs:0c97
   void restorePlayer() override;          // cs:0be9
   void clearBall() override;              // cs:0008
-  bool extraBallOwed() override { return lightState(show::lights::extraBall) == 0xff; }
+  bool extraBallOwed() override { return lightState(show::lights::extraBall) == kSet; }
   void matchPace() override { nativeCW(show::cvar::matchPace) = 0x0e; }
   u16 matchLength() override { return 0x0f; }
   u16 matchRepeated(u16 digit) override { return static_cast<u16>(9 - digit); }
-  void matchWon() override { b(show::var::matchWon) = 0xff; }
+  void matchWon() override { b(show::var::matchWon) = kSet; }
   void gameOverLights() override {}
   bool restoresAtTurn() override { return false; }
   void afterRestore() override {
@@ -441,15 +479,24 @@ class Gameshow : public Flow {
   // open is the second shape (dropped), shut the first (raised)
   static constexpr u16 kMask = 0x2aef + kLoadSegment, kUpperMask = 0x362f + kLoadSegment;  ///< the playfield's, and the ramps'
   /// The door into the vault.
-  void vaultEntry(bool open) { copyShape(kUpperMask, show::shapes::vaultEntry.at, open ? show::shapes::vaultEntry.open : show::shapes::vaultEntry.shut, 3, 0x19, 3); }
-  void plungerGate(bool open) { copyShape(kMask, show::shapes::plungerGate.at, open ? show::shapes::plungerGate.open : show::shapes::plungerGate.shut, 2, 0x22, 2); }
+  void vaultEntry(bool open) {
+    copyShape(kUpperMask, show::shapes::vaultEntry.at, open ? show::shapes::vaultEntry.open : show::shapes::vaultEntry.shut, show::shapes::vaultEntry.width,
+              show::shapes::vaultEntry.rows, show::shapes::vaultEntry.step);
+  }
+  void plungerGate(bool open) {
+    copyShape(kMask, show::shapes::plungerGate.at, open ? show::shapes::plungerGate.open : show::shapes::plungerGate.shut, show::shapes::plungerGate.width,
+              show::shapes::plungerGate.rows, show::shapes::plungerGate.step);
+  }
   /// The four targets that drop: 0 and 1 the centre pair, 2 and 3 the left.
   void target(int which, bool down);
   void rampRightGate(bool open) {
-    copyShape(kUpperMask, show::shapes::rampRightGate.at, static_cast<u16>((open ? show::shapes::rampRightGate.open : show::shapes::rampRightGate.shut) + 4), 4, 0x14, 12);
+    copyShape(kUpperMask, show::shapes::rampRightGate.at,
+              static_cast<u16>((open ? show::shapes::rampRightGate.open : show::shapes::rampRightGate.shut) + show::shapes::rampRightGate.width),  // the middle of each three rows
+              show::shapes::rampRightGate.width, show::shapes::rampRightGate.rows, show::shapes::rampRightGate.step);
   }
   void vaultExit(bool open) {
-    copyShape(kMask, show::shapes::vaultExit.at, static_cast<u16>((open ? show::shapes::vaultExit.open : show::shapes::vaultExit.shut) + 4), 4, 0x0e, 12);
+    copyShape(kMask, show::shapes::vaultExit.at, static_cast<u16>((open ? show::shapes::vaultExit.open : show::shapes::vaultExit.shut) + show::shapes::vaultExit.width),
+              show::shapes::vaultExit.width, show::shapes::vaultExit.rows, show::shapes::vaultExit.step);
   }
 
   void bindRules();

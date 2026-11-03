@@ -6,7 +6,7 @@ namespace encore {
 
 using namespace show;
 
-Gameshow::Gameshow(ByteView prg) : Flow(prg, 2) {
+Gameshow::Gameshow(ByteView prg) : Flow(prg, kTableIndex) {
   for (u16 i = 0; i < 4; ++i) maniaAt_[i] = b(static_cast<u16>(text::maniaAt + i));
   bindRules();
   bindSteps();
@@ -27,24 +27,24 @@ Gameshow::Gameshow(ByteView prg) : Flow(prg, 2) {
   });
   bindNative(routines::tableAttractMusic, [this] {  // the music while nobody plays
     music(tunes::attract);
-    b(var::musicAfter) = b(tunes::attract + 2);
-    b(var::musicNext) = 9;
+    b(var::musicAfter) = b(tunes::attract + tuneRec::priority);
+    b(var::musicNext) = songAt::afterAttract;
   });
   bindNative(routines::tableGameMusic, [this] {  // the music a game opens with
     music(tunes::gameStart);
-    b(var::musicAfter) = b(tunes::gameStart + 2);
-    b(var::musicNext) = 0;
+    b(var::musicAfter) = b(tunes::gameStart + tuneRec::priority);
+    b(var::musicNext) = songAt::plunger;
   });
   bindNative(routines::tableDrained, [this] {  // the ball is lost
-    b(var::betweenBalls) = 0xff;
+    b(var::betweenBalls) = kSet;
     w(var::lookAtSoft) = high() ? 0x103 : 0x171;
     placeBall(spots::drained);
-    b(var::ballHidden) = 0xff;
+    b(var::ballHidden) = kSet;
     b(var::flippersLive) = 0;
     b(var::modeRunning) = 0;
     b(var::musicPriority) = 0;
     award(awards::drained);
-    b(var::musicNext) = 0x37;
+    b(var::musicNext) = songAt::silence;
     addTimer(timers::drainSfx.routine);
   });
   bindNative(timers::drainSfx.routine, [this] {
@@ -59,20 +59,20 @@ Gameshow::Gameshow(ByteView prg) : Flow(prg, 2) {
   bindNative(routines::tableTilt, [this] {  // tilt
     b(var::flippersLive) = 0;
     music(tunes::tilt);
-    b(var::musicNext) = 0x37;
+    b(var::musicNext) = songAt::silence;
     startScript(scripts::tilt);
     stopBlinks();
     lightsDark();
   });
   bindNative(routines::tableTiltWarning, [this] { music(tunes::warnTilt); });
   bindNative(routines::tableFlipperPressed, [this] {  // a flipper pressed
-    if (b(var::flipperPressed) == 0xff) b(var::flipperPressed) = 0;
+    if (b(var::flipperPressed) == kSet) b(var::flipperPressed) = 0;
   });
   bindNative(routines::tableFrame, [this] { everyFrame(); });
   bindNative(routines::tableBumper, [this] {  // after a bumper's score
     modeCountHit();
     w(var::idleFrames) = 0;
-    if (w(var::idleShowing) == 0xff) {
+    if (w(var::idleShowing) == kSet) {
       startScript(scripts::showScore);
       w(var::idleShowing) = 0;
     }
@@ -80,15 +80,15 @@ Gameshow::Gameshow(ByteView prg) : Flow(prg, 2) {
   bindNative(routines::tableModeSecond, [this] {  // each second of a count-down: at nought the mode ends
     if (b(var::countdownTens) != 0x2a || b(var::countdownUnits) != 0x37) return;
     for (u16 mode : {var::modeScoring, var::clearedWithModeScoring})  // (nothing in these rules sets the second)
-      if (b(mode) == 0xff) {
+      if (b(mode) == kSet) {
         b(var::musicRepeats) = 1;
         music(tunes::modeEnd);
-        b(var::musicNext) = 3;
+        b(var::musicNext) = songAt::afterMode;
       }
     b(var::clearedWithModeScoring) = 0;
     b(var::modeScoring) = 0;
     b(var::musicPriority) = 0;
-    b(var::musicNext) = 3;
+    b(var::musicNext) = songAt::afterMode;
     b(var::musicRepeats) = 1;
   });
 }
@@ -103,7 +103,7 @@ void Gameshow::clearBall() {
   zero12(var::score);
   zero12(var::bonus);
   zero12(var::modeScore);
-  b(var::layer) = 0;
+  b(var::layer) = layers::playfield;
   copy12(var::cashpot, points::wheel500000);
   for (u16 a : {var::prizeTv, var::prizeTrip, var::prizeCar, var::prizeBoat, var::prizePlane, var::prizeHouse}) b(a) = 0;
   for (u16 a : {var::timeoutTv, var::timeoutTrip, var::timeoutCar, var::timeoutBoat, var::timeoutPlane, var::timeoutHouse}) w(a) = 0;
@@ -141,28 +141,28 @@ void Gameshow::restorePlayer() {
   b(var::prizeSet2) = b(static_cast<u16>(player + var::playerRecords + rec::prizeSet2));
   if (amended) maniaAt();
   if (b(var::prizeSet1) == 0) return;
-  b(var::prizeTv) = b(var::prizeTrip) = b(var::prizeCar) = 2;
+  b(var::prizeTv) = b(var::prizeTrip) = b(var::prizeCar) = prize::taken;
   for (u8 light : {lights::prizeTv, lights::prizeTrip, lights::prizeCar}) setLight(light);
   if (b(var::prizeSet2) == 0) return;
-  b(var::prizeBoat) = b(var::prizeHouse) = b(var::prizePlane) = 2;
+  b(var::prizeBoat) = b(var::prizeHouse) = b(var::prizePlane) = prize::taken;
   for (u8 light : {lights::prizeBoat, lights::prizeHouse, lights::prizePlane}) setLight(light);
 }
 
 void Gameshow::sameBallAgain() {
   w(var::idleFrames) = 0;
-  for (u16 i = 0; i < 12; ++i) b(static_cast<u16>(var::scoreDrawn + i)) = 0x12;
+  for (u16 i = 0; i < 12; ++i) b(static_cast<u16>(var::scoreDrawn + i)) = kScoreUndrawn;
   w(var::scoreDrawnGroups) = 0;
   bx = scripts::shootAgain;
   call(nativeW(bx));
 }
 
 void Gameshow::modeCountHit() {
-  if (b(var::modeRunning) != 0xff || b(var::modeScoring) != 0xff || b(var::modeRamp) == 0xff) return;
+  if (b(var::modeRunning) != kSet || b(var::modeScoring) != kSet || b(var::modeRamp) == kSet) return;
   addScore(var::modeScore, points::wheel500000);
 }
 
 void Gameshow::modeCountRamp() {
-  if (b(var::modeRunning) != 0xff || b(var::modeScoring) != 0xff || b(var::modeRamp) == 0) return;
+  if (b(var::modeRunning) != kSet || b(var::modeScoring) != kSet || b(var::modeRamp) == 0) return;
   addScore(var::modeScore, points::wheel1000000);
 }
 
@@ -170,7 +170,7 @@ void Gameshow::threeDigits(u16 value, u16 at) {
   for (int i = 2; i >= 0; --i) {
     u16 digit = value % 10;
     value /= 10;
-    if (digit == 0 && i == 0) digit = 0xfff3;
+    if (digit == 0 && i == 0) digit = (static_cast<u16>(0x2a - 0x37));
     b(static_cast<u16>(at + i)) = static_cast<u8>(digit + 0x37);
   }
 }
@@ -190,12 +190,12 @@ void Gameshow::maniaAt() {
 }
 
 void Gameshow::litPrize(u16 flag, u16 record, u8 light, bool outOfStepLight, u16 other1, u16 other2) {
-  b(flag) = 1;
+  b(flag) = prize::lit;
   award(record);
   blink(light, outOfStepLight ? outOfStep() : inStep(), 0x0a);
   if (b(other1) == 0 || b(other2) == 0) return;
   blink(lights::collectPrize, outOfStep(), 0x0a);
-  lightState(lights::collectPrize) = 1;
+  lightState(lights::collectPrize) = kMarked;
   vaultEntry(true);
 }
 
@@ -219,16 +219,16 @@ void Gameshow::vaultSkip() {
 void Gameshow::wheelTick() {
   w(var::wheelWait) += 2;
   const u16 wait = nativeW(w(var::wheelWait));
-  if (wait == 0xffff) {
+  if (wait == kNone) {
     startScript(scripts::spinWheelBlink);
-    addTimer(lightState(lights::collectPrize) == 1 ? timers::givePrize : timers::spinWheelEnd.routine);
+    addTimer(lightState(lights::collectPrize) == kMarked ? timers::givePrize : timers::spinWheelEnd.routine);
     return;
   }
   w(var::timeoutWheelTick) = wait;
   clearLight(static_cast<u8>(lights::wheel + b(var::wheelPos)));
   b(var::wheelPos) = static_cast<u8>((b(var::wheelPos) + 1) & 7);
   setLight(static_cast<u8>(lights::wheel + b(var::wheelPos)));
-  w(scripts::spinWheelScoreValue) = static_cast<u16>(0x0c * b(var::wheelPos) + points::wheel);
+  w(scripts::spinWheelScoreValue) = static_cast<u16>(12 * b(var::wheelPos) + points::wheel);
   startScript(scripts::spinWheelScore);
 }
 
@@ -238,14 +238,14 @@ void Gameshow::cashpotLock() {
   setLight(lights::cashpot);
   blink(lights::billion, inStep(), 0x0a);
   award(awards::cashpotLock);
-  b(var::musicNext) = 0;
+  b(var::musicNext) = songAt::plunger;
   placeBall(spots::plungerLane);
   w(var::ballVx) = 0x0a;
   b(var::ballHidden) = 0;
   b(var::musicPriority) = 0;
-  b(var::musicNext) = 0;
+  b(var::musicNext) = songAt::plunger;
   vaultEntry(true);
-  b(var::billionLit) = 0xff;
+  b(var::billionLit) = kSet;
 }
 
 void Gameshow::cashpotEject() {
@@ -269,7 +269,7 @@ void Gameshow::multiBonus() {
   if (b(var::multiBonusStep) == 6) return;
   ++b(var::multiBonusStep);
   const u16 step = static_cast<u16>(b(var::multiBonusStep) - 1);
-  if (b(var::musicPriority) <= b(tunes::multiBonus + 2) && b(var::modeRunning) != 0xff) {
+  if (b(var::musicPriority) <= b(tunes::multiBonus + tuneRec::priority) && b(var::modeRunning) != kSet) {
     startScript(nativeW(static_cast<u16>(var::multiBonusScripts + step * 2)));
     music(tunes::multiBonus);
   }
@@ -306,14 +306,14 @@ void Gameshow::countSkills() {
   if (sixes == 2) {
     music(tunes::extraBallLit);
     blink(lights::orbitExtraBall, outOfStep(), 0x0a);
-    lightState(lights::orbitExtraBall) = 1;
+    lightState(lights::orbitExtraBall) = kMarked;
     return;
   }
   const bool second = sixes != 1 && (sixes & 1);
   award(second ? awards::modeRamp : awards::modeHit);
-  b(var::modeScoring) = 0xff;
-  b(var::modeRunning) = 0xff;
-  b(var::modeRamp) = second ? 0xff : 0;
+  b(var::modeScoring) = kSet;
+  b(var::modeRunning) = kSet;
+  b(var::modeRamp) = second ? kSet : 0;
   setLight(lights::moneyMania);
 }
 
@@ -358,13 +358,13 @@ void Gameshow::bindRules() {
 
   // the two pairs of targets that drop
   struct Drop { u16 hit, flag, other, record; int piece; u8 light; u16 timer; };
-  for (const Drop d : {Drop{routines::dropCenter0, var::lightStates + lights::dropCenter, var::lightStates + lights::dropCenter + 1, awards::dropCenter, 0, lights::dropCenter,
+  for (const Drop d : {Drop{routines::dropCenter0, var::lightStates + lights::dropCenter, var::lightStates + lights::dropCenter + 1, awards::dropCenter, drops::center0, lights::dropCenter,
                             timers::resetDropCenter.routine},
-                       {routines::dropCenter1, var::lightStates + lights::dropCenter + 1, var::lightStates + lights::dropCenter, awards::dropCenter, 1, lights::dropCenter + 1,
+                       {routines::dropCenter1, var::lightStates + lights::dropCenter + 1, var::lightStates + lights::dropCenter, awards::dropCenter, drops::center1, lights::dropCenter + 1,
                         timers::resetDropCenter.routine},
-                       {routines::dropLeft0, var::lightStates + lights::dropLeft, var::lightStates + lights::dropLeft + 1, awards::dropLeft, 2, lights::dropLeft,
+                       {routines::dropLeft0, var::lightStates + lights::dropLeft, var::lightStates + lights::dropLeft + 1, awards::dropLeft, drops::left0, lights::dropLeft,
                         timers::resetDropLeft.routine},
-                       {routines::dropLeft1, var::lightStates + lights::dropLeft + 1, var::lightStates + lights::dropLeft, awards::dropLeft, 3, lights::dropLeft + 1,
+                       {routines::dropLeft1, var::lightStates + lights::dropLeft + 1, var::lightStates + lights::dropLeft, awards::dropLeft, drops::left1, lights::dropLeft + 1,
                         timers::resetDropLeft.routine}}) {
     bindNative(d.hit, [this, d] {
       modeCountHit();
@@ -380,16 +380,16 @@ void Gameshow::bindRules() {
     sfx(sounds::raiseHitTargets);
     setLight(lights::dropCenter);
     setLight(lights::dropCenter + 1);
-    target(0, false);
-    target(1, false);
+    target(drops::center0, false);
+    target(drops::center1, false);
     endTimer();
   });
   after(timers::resetDropLeft.routine, timers::resetDropLeft.counter, 0x3c, [this] {
     sfx(sounds::raiseHitTargets);
     setLight(lights::dropLeft);
     setLight(lights::dropLeft + 1);
-    target(2, false);
-    target(3, false);
+    target(drops::left0, false);
+    target(drops::left1, false);
     endTimer();
   });
 
@@ -402,7 +402,7 @@ void Gameshow::bindRules() {
     award(awards::dollarBoth);
     stopBlink(lights::spinWheel);
     blink(lights::spinWheel, outOfStep(), 0x0a);
-    lightState(lights::spinWheel) = 0xff;
+    lightState(lights::spinWheel) = kSet;
     vaultEntry(true);
   };
   bindNative(routines::dollar0, [=, this] {
@@ -410,18 +410,18 @@ void Gameshow::bindRules() {
     sfx(sounds::hitTarget);
     // (amended: for the second that the pair flashes after both were hit, another hit on
     // either counts as both again)
-    if (lightState(lights::dollar + 1) == 0xff || (amended && bothShown_)) return both();
+    if (lightState(lights::dollar + 1) == kSet || (amended && bothShown_)) return both();
     blink(lights::dollar, 0, 6);
-    lightState(lights::dollar) = 0xff;
+    lightState(lights::dollar) = kSet;
     addTimer(timers::unblinkDollar0.routine);
     award(awards::dollar);
   });
   bindNative(routines::dollar1, [=, this] {
     modeCountHit();
     sfx(sounds::hitTarget);
-    if (lightState(lights::dollar) == 0xff || (amended && bothShown_)) return both();
+    if (lightState(lights::dollar) == kSet || (amended && bothShown_)) return both();
     blink(lights::dollar + 1, 0, 6);
-    lightState(lights::dollar + 1) = 0xff;
+    lightState(lights::dollar + 1) = kSet;
     addTimer(timers::unblinkDollar1.routine);
     award(awards::dollar);
   });
@@ -449,7 +449,7 @@ void Gameshow::bindRules() {
     plungerGate(false);
     b(var::playersMayJoin) = 0;
     music(tunes::main);
-    b(var::musicNext) = 1;
+    b(var::musicNext) = songAt::main;
     startScript(scripts::main);
     b(var::ballUntouched) = 0;
     b(var::specialPlungerEvent) = 0;
@@ -459,7 +459,7 @@ void Gameshow::bindRules() {
     b(var::ballOnPlunger) = 0;
     plungerGate(true);
   });
-  bindNative(routines::plungerBottom, [this] { b(var::ballOnPlunger) = 0xff; });  // at the foot of the plunger lane
+  bindNative(routines::plungerBottom, [this] { b(var::ballOnPlunger) = kSet; });  // at the foot of the plunger lane
 
   after(timers::billionRelease.routine, timers::billionRelease.counter, 0xfa, [this] {
     stopBlink(lights::billion);
@@ -478,9 +478,9 @@ void Gameshow::bindRules() {
   });
   bindNative(routines::vault, [this] {  // through the door into the vault: the prize wheel turns
     vaultExit(true);
-    if (b(var::modeRunning) == 0xff || b(var::tilted) == 0xff) return vaultSkip();
-    if (b(var::billionLit) == 0xff) return billion();
-    b(var::ballHidden) = 0xff;
+    if (b(var::modeRunning) == kSet || b(var::tilted) == kSet) return vaultSkip();
+    if (b(var::billionLit) == kSet) return billion();
+    b(var::ballHidden) = kSet;
     if (lightState(lights::collectPrize) == 0) vaultEntry(false);
     placeBall(spots::vault);
     music(tunes::spinWheel);
@@ -489,16 +489,17 @@ void Gameshow::bindRules() {
     startScript(scripts::spinWheelClearHalt);
     clearLight(static_cast<u8>(lights::wheel + b(var::wheelPos)));
     u8 start = static_cast<u8>(w(var::loopCounter));
-    if (drawsChance() && lightState(lights::collectPrize) != 1) {
+    if (drawsChance() && lightState(lights::collectPrize) != kMarked) {
       // by chance proper: where the wheel is to stop, counted back by the moves it will make
       u16 moves = 0;
-      for (u16 at = w(var::wheelWait); nativeW(at) != 0xffff; at = static_cast<u16>(at + 2)) ++moves;
+      for (u16 at = w(var::wheelWait); nativeW(at) != kNone; at = static_cast<u16>(at + 2)) ++moves;
       start = static_cast<u8>(chance(8, 0) - moves);
     }
-    if (lightState(lights::collectPrize) == 1) {  // a prize is to be collected: the wheel is made to stop on it
+    if (lightState(lights::collectPrize) == kMarked) {  // a prize is to be collected: the wheel is made to stop on it
       struct Prize { u16 flag; u8 start; };
-      for (const Prize p : {Prize{var::prizeTv, 0}, {var::prizeTrip, 1}, {var::prizeCar, 2}, {var::prizeBoat, 6}, {var::prizeHouse, 5}, {var::prizePlane, 4}})
-        if (b(p.flag) == 1) {
+      for (const Prize p : {Prize{var::prizeTv, wheel::tv}, {var::prizeTrip, wheel::trip}, {var::prizeCar, wheel::car}, {var::prizeBoat, wheel::boat}, {var::prizeHouse, wheel::house},
+                            {var::prizePlane, wheel::plane}})
+        if (b(p.flag) == prize::lit) {
           start = p.start;
           break;
         }
@@ -508,7 +509,7 @@ void Gameshow::bindRules() {
     w(var::lookAtSoft) = high() ? 0xdc : 0x10e;
   });
   after(timers::spinWheelEnd.routine, timers::spinWheelEnd.counter, 0x64, [this] {
-    w(var::lookAtSoft) = 0xffff;
+    w(var::lookAtSoft) = kNone;
     // (the wheel's first value has blanks in it, for the display: a plain 25000 is added)
     if (w(scripts::spinWheelScoreValue) == points::wheel) w(scripts::spinWheelScoreValue) = points::k25000;
     addScore(var::score, w(scripts::spinWheelScoreValue));
@@ -527,42 +528,42 @@ void Gameshow::bindRules() {
         stopBlink(lights::collectPrize);
         clearLight(lights::collectPrize);
       }
-      b(flag) = 2;
+      b(flag) = prize::taken;
       b(var::musicPriority) = 0;
       award(record);
     };
-    if (b(var::prizeSet1) != 0xff) {
-      if (b(var::prizeTv) != 2) collect(var::prizeTv, lights::prizeTv, awards::prizeTv);
-      else if (b(var::prizeTrip) != 2) collect(var::prizeTrip, lights::prizeTrip, awards::prizeTrip);
+    if (b(var::prizeSet1) != kSet) {
+      if (b(var::prizeTv) != prize::taken) collect(var::prizeTv, lights::prizeTv, awards::prizeTv);
+      else if (b(var::prizeTrip) != prize::taken) collect(var::prizeTrip, lights::prizeTrip, awards::prizeTrip);
       else {
         collect(var::prizeCar, lights::prizeCar, awards::prizeCar);
         blink(lights::jackpot, inStep(), 0x0a);
-        lightState(lights::jackpot) = 1;
+        lightState(lights::jackpot) = kMarked;
         w(var::timeoutJackpot) = 0x5dc;
-        b(var::prizeSet1) = 0xff;
+        b(var::prizeSet1) = kSet;
         vaultEntry(false);
       }
-    } else if (b(var::prizeBoat) != 2) {
+    } else if (b(var::prizeBoat) != prize::taken) {
       collect(var::prizeBoat, lights::prizeBoat, awards::prizeBoat);
-    } else if (b(var::prizeHouse) != 2) {
+    } else if (b(var::prizeHouse) != prize::taken) {
       collect(var::prizeHouse, lights::prizeHouse, awards::prizeHouse);
     } else {
       collect(var::prizePlane, lights::prizePlane, awards::prizePlane);
-      b(var::prizeSet2) = 0xff;
+      b(var::prizeSet2) = kSet;
       vaultEntry(false);
     }
     endTimer();
   });
 
   bindNative(routines::cashpotTrigger, [this] {  // the cashpot
-    b(var::ballHidden) = 0xff;
-    if (b(var::modeRunning) == 0xff) {
-      b(var::ballHidden) = 0xff;
+    b(var::ballHidden) = kSet;
+    if (b(var::modeRunning) == kSet) {
+      b(var::ballHidden) = kSet;
       setLight(lights::cashpot);
       addTimer(timers::cashpotEjectInMode.routine);
       return;
     }
-    if (b(var::prizeSet2) == 0xff) return cashpotLock();
+    if (b(var::prizeSet2) == kSet) return cashpotLock();
     incJackpot();
     if (w(var::timeoutCashpotX5) == 0) {
       award(awards::cashpot);
@@ -620,15 +621,15 @@ void Gameshow::bindRules() {
     w(var::timeoutCashpotX5) = 0x294;
     stopBlink(lights::cashpotX5);
     blink(lights::cashpotX5, outOfStep(), 0x0a);
-    if (w(var::timeoutCar) != 0 && b(var::prizeCar) < 1) {
+    if (w(var::timeoutCar) != 0 && b(var::prizeCar) < prize::lit) {
       w(var::timeoutCar) = 0;
       return litPrize(var::prizeCar, awards::litCar, lights::prizeCar, false, var::prizeTrip, var::prizeTv);
     }
-    if (b(var::prizePlane) == 0 && w(var::timeoutCar) != 0 && b(var::prizeSet1) == 0xff) {
+    if (b(var::prizePlane) == 0 && w(var::timeoutCar) != 0 && b(var::prizeSet1) == kSet) {
       w(var::timeoutCar) = 0;
-      if (b(var::prizeSet2) != 0xff) {
+      if (b(var::prizeSet2) != kSet) {
         if (b(var::prizePlane) != 0) return;
-        if (b(var::modeRunning) != 0xff) startScript(scripts::hintLoopLeft);
+        if (b(var::modeRunning) != kSet) startScript(scripts::hintLoopLeft);
         w(var::timeoutPlane) = 0x258;
         return;
       }
@@ -672,10 +673,10 @@ void Gameshow::bindRules() {
     modeCountRamp();
     countSkills();
     if (w(var::timeoutTv) != 0) {
-      if (b(var::prizeSet2) == 0xff) return;
-      if (b(var::prizeSet1) == 0xff) {
+      if (b(var::prizeSet2) == kSet) return;
+      if (b(var::prizeSet1) == kSet) {
         if (b(var::prizeBoat) != 0) return;
-        if (b(var::modeRunning) != 0xff) startScript(scripts::hintLoopRight);
+        if (b(var::modeRunning) != kSet) startScript(scripts::hintLoopRight);
         w(var::timeoutBoat) = 0x258;
         return;
       }
@@ -684,10 +685,10 @@ void Gameshow::bindRules() {
         return litPrize(var::prizeTv, awards::litTv, lights::prizeTv, false, var::prizeCar, var::prizeTrip);
       }
     }
-    if (w(var::timeoutTrip) == 0 || b(var::prizeSet2) == 0xff) return;
-    if (b(var::prizeSet1) == 0xff) {
+    if (w(var::timeoutTrip) == 0 || b(var::prizeSet2) == kSet) return;
+    if (b(var::prizeSet1) == kSet) {
       if (b(var::prizeHouse) != 0) return;
-      if (b(var::modeRunning) != 0xff) startScript(scripts::hintLoopRight);
+      if (b(var::modeRunning) != kSet) startScript(scripts::hintLoopRight);
       w(var::timeoutHouse) = 0x258;
       return;
     }
@@ -769,7 +770,7 @@ void Gameshow::bindSteps() {
   });
   bindNative(code::nothingTask, [] {});
   bindNative(routines::setSpecialPlungerEvent, [this] {
-    b(var::specialPlungerEvent) = 0xff;
+    b(var::specialPlungerEvent) = kSet;
     w(var::taskState) = 1;
     w(var::task) = code::nothingTask;
     nextStep(4);
@@ -783,7 +784,7 @@ void Gameshow::bindSteps() {
     w(var::taskState) = 0x2c;
     nextStep(4);
   });
-  bindNative(code::gameStartingTask, [this] { si = b(var::playersMayJoin) == 0xff ? 0x22 : 0; });
+  bindNative(code::gameStartingTask, [this] { si = b(var::playersMayJoin) == kSet ? 0x22 : 0; });
   bindNative(routines::jccScoreZero, [=, this] {  // go elsewhere if a score is nought
     bool nought = true;
     for (u16 i = 0; i < 12; ++i)

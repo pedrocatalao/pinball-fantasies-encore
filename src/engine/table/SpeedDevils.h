@@ -4,6 +4,7 @@
 // engine's names (Names.inc). Each routine still says where it is in the program ("cs:2281").
 #include <initializer_list>
 
+#include "engine/Values.h"
 #include "engine/table/Flow.h"
 
 namespace encore {
@@ -363,6 +364,22 @@ constexpr u16 matchFrames = 0x07e0;  ///< frames left of this digit
 constexpr u16 matchPace = 0x07e2;  ///< frames each digit stands
 constexpr u16 matchLength = 0x0866;  ///< (a word in an instruction) the digits the match runs through
 }  // namespace cvar
+
+/// This table's place in the engine's maps (Flow's second argument).
+constexpr int kTableIndex = 1;
+/// What var::scoreDrawn's digits are set to, so that each is drawn again.
+constexpr u8 kScoreUndrawn = 0x12;
+
+/// Places in the song (var::musicNext: where the music goes on after a tune). Of the tunes'
+/// records only the plunger's has one of these places; the others are named after what the
+/// rules play before them.
+namespace songAt {
+constexpr u8 plunger = 0;  ///< tunes::gameStart's place, which is also the plunger's
+constexpr u8 afterMain = 1;  ///< after the main tune, as the ball comes back down the lane
+constexpr u8 afterMode = 3;  ///< after a mode's end
+constexpr u8 afterAttract = 9;
+constexpr u8 afterTilt = 0x3e;
+}  // namespace songAt
 }  // namespace speed
 
 class SpeedDevils : public Flow {
@@ -401,7 +418,7 @@ class SpeedDevils : public Flow {
   u16 matchLength() override { return kw(speed::cvar::matchLength, 1); }
   void gameOverLights() override {}
   u16 matchRepeated(u16 digit) override { return digit; }
-  void matchWon() override { b(speed::var::matchWon) = 0xff; }
+  void matchWon() override { b(speed::var::matchWon) = kSet; }
   bool restoresAtTurn() override { return false; }
   void ballShown() override { b(speed::text::ballA) = b(speed::text::ballB); }
   void playerShown() override { b(speed::text::playerA) = b(speed::text::playerB); }

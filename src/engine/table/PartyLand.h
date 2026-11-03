@@ -4,6 +4,7 @@
 // (the map is the identity), and the rules read them through B(), W() and the like. Its own are
 // named below, what the engine shares in Names.inc; each routine still says where it is in the
 // program ("cs:1126").
+#include "engine/Values.h"
 #include "engine/table/Flow.h"
 
 namespace encore {
@@ -521,6 +522,31 @@ constexpr u16 duckUnblink1 = 0x1475;
 constexpr u16 duckUnblink2 = 0x14f5;
 constexpr u16 demonPrizes = 0x2298;  ///< the demon's lit prizes collected
 }  // namespace cvar
+
+/// The table's place in the engine's maps (Flow's second argument).
+constexpr int kTableIndex = 0;
+/// Two lights' flags read as one word, both set.
+constexpr u16 kSetPair = 0xffff;
+
+/// Places in the song (var::musicNext), by the tune whose record has them.
+namespace songAt {
+constexpr u8 plunger = 0x00;
+constexpr u8 main = 0x01;
+constexpr u8 afterAttract = 0x09;  ///< the place after the attract tune's (0x08)
+constexpr u8 megaLaugh = 0x19;
+constexpr u8 happyHour = 0x2b;
+constexpr u8 silence = 0x3e;
+}  // namespace songAt
+
+/// A tune's priority, held while it plays (var::musicPriority; 0 is none).
+namespace priorities {
+constexpr u8 arcade = 1;  ///< the arcade's jingle
+}  // namespace priorities
+
+/// A display task's count (var::taskState, si): any value but 0 says "not done".
+namespace tasks {
+constexpr u16 waiting = 0xff;  ///< what it is left at while it waits for something other than time
+}  // namespace tasks
 }  // namespace party
 
 class PartyLand : public Flow {
