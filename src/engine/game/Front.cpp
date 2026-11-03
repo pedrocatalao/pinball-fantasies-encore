@@ -108,6 +108,111 @@ constexpr u16 kYes = 0x49fc, kNo = 0x4a05, kReadOnly = 0x4a0e, kNoSpace = 0x4a17
               kError = 0x4a32;
 constexpr int kOptions = 10;     ///< the original's six, and ARTWORK, AUDIO, DOT MATRIX and PORTABLE
 
+/// INTRO.PRG as a file: its MZ header, and the program after it, at least so many bytes.
+constexpr int kHeaderBytes = 0x400, kImageBytes = 0x4daa0;
+/// A picture's part is looked for in its first so many bytes (cs:4998).
+constexpr u32 kSearchBytes = 0xc350;
+
+/// The card's memory as the menu lays it out: 64K in each plane, rows of 80 bytes (640 dots).
+constexpr int kPlaneBytes = 0x10000;
+constexpr int kRowBytes = 80;
+constexpr int kRows = 0xf0;           ///< the menu's rows, each shown twice
+constexpr int kScreenBytes = 0x4b00;  ///< a screen of them
+constexpr u16 kLatchByte = 0x13;  ///< a byte left empty: read, it fills the latches with nothing to copy
+constexpr u16 kBeside = 0x14;       ///< the part of a row beside the panel: from this byte (dot 160),
+constexpr u16 kBesideBytes = 0x37;  ///< so many bytes of it (440 dots, a banner's width)
+constexpr u16 kBannerTop = 0x334, kBannerBottom = 0x2a44;  ///< where the two banners shown are: rows 10 and 135, beside the panel
+constexpr u8 kBannerLast = 0x5e;    ///< a banner's last row: it has 95
+constexpr int kBannerRows = 95;
+constexpr int kBanners4 = 4;        ///< the banners, one for each table
+constexpr u16 kPanelText = 0x1db2;  ///< where the panel's text is written: from row 95, byte 2 (dot 16), 14 bytes by 90 rows
+constexpr int kPanelTextTop = 95, kPanelTextLeft = 2, kPanelTextBytes = 0x0e, kPanelTextRows = 0x5a;
+constexpr u16 kScrollerLetters = 0x1e52;  ///< and its first letter: row 97, byte 2
+constexpr int kScrollerLines = 10, kScrollerColumns = 12, kScrollerLineRows = 9;
+constexpr int kRomRows = 8;          ///< a ROM letter's rows
+constexpr u16 kHeadingAt = 0x17;     ///< a page of best scores' heading: from byte 0x17 of its first row,
+constexpr int kHeadingBytes = 50, kHeadingRows = 40;  ///< 50 bytes (400 dots) by 40 rows
+constexpr u16 kUnderHeading = 0x320;  ///< its text ten rows lower
+constexpr u16 kSlideIn = 0x10;  ///< the menu comes in from the right: the screen starts so many bytes on, and moves back a byte a frame
+constexpr u16 kOpenPanel = 0x82, kOpenWhole = 0x140;  ///< how wide the card shows the menu (cs:2888): the panel alone (130 dots), then all of it
+constexpr u16 kClockStep = 3;  ///< what cs:288c counts up by each frame (nothing here reads it)
+constexpr int kSplitRow = 0xe6;  ///< the driver's callback part way down the screen: at line 230 of the 480
+constexpr int kSelectBits = 3, kSelectShift = 4;  ///< the colour select's two bits are the colours' fifth and sixth
+constexpr u8 kWarpEnd = 0xff;  ///< in var::warpTable, ends a frame's rows; twice, the table
+constexpr u16 kScoresPage = 0xffff;  ///< in var::pages: the best scores of the two tables shown
+constexpr int kPair34 = 2;  ///< var::tablePair while the banners are of tables 3 and 4
+constexpr int kTable3 = 2;  ///< the third table, counted from nought
+constexpr int kTables = 4, kBestScores = 4;  ///< and each table's best scores
+constexpr int kSecondName = 7;  ///< a page of best scores: the second table's name's line (the first's is the next after the heading)
+constexpr u8 kFirstPlane = 0x11, kBeforeFirstPlane = 0x88;  ///< the plane a picture is unpacked into first: its bit, in both halves to be turned about
+constexpr int kColourBytes = 3;
+constexpr u16 kVolumeStep = 0xfff0;  ///< the volume is said to the driver when it changes by a sixteenth
+constexpr Rgb kWhite{0xff, 0xff, 0xff};
+
+/// The menu's times, in frames (pfr: intro.rs, the counts of its State).
+namespace times {
+constexpr int black = 3;         ///< of black, before the menu opens and as it does
+constexpr int openWait = 4;      ///< the panel alone, before the rest of the menu slides in
+constexpr int slideIn = 0x14;
+constexpr int bannersGap = 0x14;  ///< pfr: TablesGap
+constexpr int banners = 0x21c;   ///< pfr: Tables, before a page is shown in their place
+constexpr int pageGap = 5;       ///< pfr: TextGap, as a page's letters are drawn dim
+constexpr int pageFade = 0x14;   ///< pfr: TextFadeIn, TextFadeOut
+constexpr int page = 0x1a4;      ///< pfr: Text
+constexpr int optionsFade = 0x28;  ///< pfr: OptionsFadeIn
+constexpr int leave = 0x50;      ///< pfr: TablesFadeOut
+}  // namespace times
+
+/// The slides (pfr: assets/intro.rs, a Slide's gap_frames, fade_in_frames, fade_out_frames and
+/// fade_out_tick): frames of the fades, and the driver's ticks (fiftieths of a second of the
+/// music) after which each fades out. (pfr's presents fades at tick 1.)
+namespace slideTimes {
+constexpr int fade = 0x14, fadeWhite = 0x0a, fadePresents = 0x08, gap = 1;
+constexpr u32 start = 1, logo0 = 0x12e, logo1 = 0x26c, logo2 = 0x37b, presents = 0, pflogo = 0x5dc;
+}  // namespace slideTimes
+
+/// The rows the slides' halves are unpacked at, in the card's memory; a half is 151 rows
+/// (cs:4a39, kHalfBytes) or 200 (cs:4db0, kTallHalfBytes).
+namespace slideRows {
+constexpr u16 logo0Upper = 0x000, logo0Lower = 0x08b, logo1Upper = 0x0f0, logo1Lower = 0x16d, logo2Upper = 0x1ec,
+              logo2Lower = 0x25a, presents = 0, pflogo = 0x96;
+}  // namespace slideRows
+constexpr u16 kHalfBytes = 0x2f40, kTallHalfBytes = 0x3e80;
+constexpr int kHalvedBytes = 0x60;  ///< the 32 colours made again at half their strength (cs:4aa2)
+constexpr int kChunkySlides = 4, kLastSlide = 5;  ///< the slides of 320 by 240, and the last, of 640 by 480
+constexpr int kChunkyWidth = 320, kChunkyHeight = 240;
+
+/// The options' page: its first option's line, and the column of marks beside them (cs:3f5a):
+/// where it begins in the card's memory (row 50, byte 0x15), and its width and rows.
+constexpr u16 kOptionsTop = 0x32;
+constexpr u16 kMarkAt = 0x0fb5, kMarkX = 0xaf, kMarkBytes = 3;
+constexpr int kMarkRows = 0x8c;
+constexpr u16 kWordX = 0x12 * 0x0d + 0xda;  ///< an option's word: the 16th letter of its line (cs:4155)
+
+/// The options' values as PINBALL.CFG has them.
+namespace cfg {
+constexpr int fewBalls = 3, manyBalls = 5;
+constexpr int angleHigh = 0, angleLow = 1, angleHigher = 2;  ///< (the last this version's)
+constexpr int scrollHard = 0, scrollSoft = 2;
+constexpr int resolutionNormal = 0, resolutionHigh = 1, resolutionFull = 2, resolutionTall = 3;  ///< (the last two this version's)
+}  // namespace cfg
+
+/// This version's: which picture's dot a dot of the card's memory is (Front::from_).
+namespace dotOf {
+constexpr int picture = 20, across = 10;  ///< where they are in the word
+constexpr u32 field = 0x3ff;
+}  // namespace dotOf
+
+/// This version's tall menu, and the pictures drawn again at high resolution: the panel's
+/// picture, a banner and a heading, in dots, and where things are down the tall screen.
+constexpr int kPanelDots = 130, kPanelRows = 240, kBannerDots = 440, kHeadingDots = 400;
+constexpr int kBesideDots = 160;  ///< where the part beside the panel begins
+constexpr int kPanelTop = 186;  ///< the panel's rows shown as they are; then its plain middle,
+constexpr int kStretchEnd = 427, kStretch = 240;  ///< drawn out to this row, and the rest of it this far lower
+constexpr int kTallPageTop = 120;  ///< a page, in the middle
+constexpr int kTallScrollerTop = 257;  ///< the panel's text, on the plain stretch
+constexpr int kTallScoresTop = 24;  ///< the four tables' best scores, from here down
+
 /// The places in a picture's chunks (IFF, big-endian), from the end of the chunk's name.
 namespace iff {
 constexpr u32 lengthHigh = 2u;  ///< CMAP: the low word of the chunk's length, the bytes of colours
@@ -117,24 +222,28 @@ constexpr u32 widthHigh = 4u;  ///< BMHD: the picture's width in dots
 constexpr u32 widthLow = 5u;
 constexpr u32 heightHigh = 6u;  ///< and its height
 constexpr u32 heightLow = 7u;
+/// BODY, packed (ByteRun1): a byte below this, so many bytes and one more as they are; above
+/// it, the next byte 257 less it times; this itself, nothing.
+constexpr int skip = 0x80;
+constexpr u32 tagBytes = 4u;  ///< a part's name, before it
 }  // namespace iff
 
 }  // namespace
 
 Front::Front(ByteView prg, ByteView module, const Config& config, int returningFrom, PortableLock portableLock,
              bool portableError)
-    : music_(48000), options_(config.options), saved_(config.options), returningFrom_(returningFrom),
+    : music_(MusicDriver::kOutputRate), options_(config.options), saved_(config.options), returningFrom_(returningFrom),
       portableLock_(portableLock), portableError_(portableError) {
-  if (prg.size() < 0x400 + 0x4daa0) throw DataError("INTRO.PRG is not the program it should be");
-  image_.assign(prg.begin() + 0x400, prg.end());
-  for (auto& plane : planes_) plane.assign(0x10000, 0);
-  from_.assign(0x10000 * 8, 0);
+  if (prg.size() < kHeaderBytes + kImageBytes) throw DataError("INTRO.PRG is not the program it should be");
+  image_.assign(prg.begin() + kHeaderBytes, prg.end());
+  for (auto& plane : planes_) plane.assign(kPlaneBytes, 0);
+  from_.assign(kPlaneBytes * 8, 0);
   if (!music_.load(module)) throw DataError("the menu's music is not a module");
   music_.start();
 
   // cs:407e: the options, as PINBALL.CFG has them
-  ds(var::balls) = options_.balls == 5;
-  ds(var::angle) = options_.angle == Angle::Low ? 1 : options_.angle == Angle::Higher ? 2 : 0;
+  ds(var::balls) = options_.balls == cfg::manyBalls;
+  ds(var::angle) = options_.angle == Angle::Low ? cfg::angleLow : options_.angle == Angle::Higher ? cfg::angleHigher : cfg::angleHigh;
   ds(var::scrollSpeed) = static_cast<u8>(options_.scrollSpeed);
   ds(var::noMusic) = options_.noMusic;
   ds(var::resolution) = static_cast<u8>(options_.resolution);
@@ -159,7 +268,7 @@ Front::Front(ByteView prg, ByteView module, const Config& config, int returningF
   // Each has twelve lines, an empty one a nought, as the page shows twelve and no more
   const auto copy = [&](std::vector<u8>& to, u16 from, u16 end) { to.insert(to.end(), &ds(from), &ds(from) + (end - from)); };
   const auto addLine = [](std::vector<u8>& to, std::string text) {
-    text.resize(0x18, ' ');
+    text.resize(pageText::lineBytes, ' ');
     to.insert(to.end(), text.begin(), text.end());
   };
   std::vector<u8>& firstPage = optionsPages_[0];
@@ -176,30 +285,30 @@ Front::Front(ByteView prg, ByteView module, const Config& config, int returningF
   morePage.insert(morePage.end(), {0, 0});
 
   // cs:371f: the best scores, written into the two pages that show them
-  static constexpr u16 kRows[4] = {var::scoresTable1, var::scoresTable2, var::scoresTable3, var::scoresTable4};
-  for (std::size_t t = 0; t < 4; ++t)
-    for (u16 n = 0; n < 4; ++n) {
+  static constexpr u16 kRows[kTables] = {var::scoresTable1, var::scoresTable2, var::scoresTable3, var::scoresTable4};
+  for (std::size_t t = 0; t < kTables; ++t)
+    for (u16 n = 0; n < kBestScores; ++n) {
       const HighScore& h = config.highScores[t][n];
-      const u16 row = static_cast<u16>(kRows[t] + n * 0x18);
-      for (u16 i = 0; i < 3; ++i) ds(static_cast<u16>(row + i)) = h.name[i];
+      const u16 row = static_cast<u16>(kRows[t] + n * pageText::lineBytes);
+      for (u16 i = 0; i < scoreLine::initials; ++i) ds(static_cast<u16>(row + i)) = h.name[i];
       bool begun = false;
-      for (u16 i = 0; i < 12; ++i) {
+      for (u16 i = 0; i < kScoreDigits; ++i) {
         begun |= h.score.digits[i] != 0;
-        ds(static_cast<u16>(row + scoreLine::score + i)) = begun ? static_cast<u8>(h.score.digits[i] + 0x30) : ' ';
+        ds(static_cast<u16>(row + scoreLine::score + i)) = begun ? static_cast<u8>(h.score.digits[i] + '0') : ' ';
       }
-      if (!begun) ds(static_cast<u16>(row + scoreLine::score + 11)) = '0';  // (this version: a score of nought is written)
+      if (!begun) ds(static_cast<u16>(row + scoreLine::score + kScoreDigits - 1)) = '0';  // (this version: a score of nought is written)
     }
   // (this version: each table's name in the middle of its line, where the original has them all
   // begin at one place)
-  for (const u16 line : {u16{var::scoresTables12 + 0x18}, u16{var::scoresTables12 + 0x18 * 7}, u16{var::scoresTables34 + 0x18},
-                          u16{var::scoresTables34 + 0x18 * 7}}) {
+  for (const u16 line : {u16{var::scoresTables12 + pageText::lineBytes}, u16{var::scoresTables12 + pageText::lineBytes * kSecondName},
+                          u16{var::scoresTables34 + pageText::lineBytes}, u16{var::scoresTables34 + pageText::lineBytes * kSecondName}}) {
     std::string name;
-    for (u16 i = 0; i < 0x18; ++i) name += static_cast<char>(ds(static_cast<u16>(line + i)));
+    for (u16 i = 0; i < pageText::lineBytes; ++i) name += static_cast<char>(ds(static_cast<u16>(line + i)));
     const auto first = name.find_first_not_of(' '), last = name.find_last_not_of(' ');
     if (first == std::string::npos) continue;
     name = name.substr(first, last - first + 1);
-    const std::size_t before = (0x18 - name.size()) / 2;
-    for (u16 i = 0; i < 0x18; ++i) ds(static_cast<u16>(line + i)) = i >= before && i - before < name.size() ? static_cast<u8>(name[i - before]) : ' ';
+    const std::size_t before = (pageText::lineBytes - name.size()) / 2;
+    for (u16 i = 0; i < pageText::lineBytes; ++i) ds(static_cast<u16>(line + i)) = i >= before && i - before < name.size() ? static_cast<u8>(name[i - before]) : ' ';
   }
   for (int row = 0; row < kOptions; ++row) writeOptionWord(row);
   task_ = main();
@@ -252,15 +361,15 @@ Front::Action Front::frame() {
 // the video card
 // ---------------------------------------------------------------------------------------
 u8 Front::peek(u16 at) {
-  for (std::size_t p = 0; p < 4; ++p) latch_[p] = planes_[p][at];
+  for (std::size_t p = 0; p < kPlanes; ++p) latch_[p] = planes_[p][at];
   return latch_[readPlane_];
 }
 
 void Front::poke(u16 at, u8 value) {
-  for (std::size_t p = 0; p < 4; ++p) {
+  for (std::size_t p = 0; p < kPlanes; ++p) {
     if (!(planeMask_ & (1 << p))) continue;
     if (writeMode_ == 1) planes_[p][at] = latch_[p];
-    else if (enableSetReset_ & (1 << p)) planes_[p][at] = (setReset_ & (1 << p)) ? 0xff : 0;
+    else if (enableSetReset_ & (1 << p)) planes_[p][at] = (setReset_ & (1 << p)) ? kAllDots : 0;
     else planes_[p][at] = value;
   }
   if (writeMode_ != 1) forget(at);
@@ -289,11 +398,11 @@ void Front::fill(u16 to, u16 count, u8 value) {
 
 void Front::writeMode(int mode) {
   writeMode_ = mode;
-  if (mode == 1) planeMask_ = 0x0f;
+  if (mode == 1) planeMask_ = kAllPlanes;
 }
 
 void Front::setDac(int first, const u8* values, int bytes) {
-  for (int i = 0; i < bytes && first * 3 + i < 768; ++i) dac_[static_cast<std::size_t>(first * 3 + i)] = values[i] & 0x3f;
+  for (int i = 0; i < bytes && first * 3 + i < palette::allBytes; ++i) dac_[static_cast<std::size_t>(first * 3 + i)] = values[i] & palette::dacMax;
 }
 
 void Front::clearVideo() {
@@ -303,10 +412,10 @@ void Front::clearVideo() {
 
 /// cs:4998: where in a picture a part of it begins, past its four letters.
 u16 Front::find(u16 segment, const char* tag) {
-  for (u32 at = 0; at < 0xc350; ++at)
+  for (u32 at = 0; at < kSearchBytes; ++at)
     if (farByte(segment, at) == static_cast<u8>(tag[0]) && farByte(segment, at + 1) == static_cast<u8>(tag[1]) &&
         farByte(segment, at + 2) == static_cast<u8>(tag[2]) && farByte(segment, at + 3) == static_cast<u8>(tag[3]))
-      return static_cast<u16>(at + 4);
+      return static_cast<u16>(at + iff::tagBytes);
   throw DataError(std::string("a picture of the menu's has no ") + tag);
 }
 
@@ -321,23 +430,23 @@ u16 Front::unpackPlanar(u16 segment, u16 row, bool setColours, HdPicture is) {
   const u16 header = find(segment, "BMHD");
   const u16 width = static_cast<u16>(((farByte(segment, header + iff::widthHigh) << 8) | farByte(segment, header + iff::widthLow)) >> 3);
   const u16 height = static_cast<u16>((farByte(segment, header + iff::heightHigh) << 8) | farByte(segment, header + iff::heightLow));
-  const u16 end = static_cast<u16>((row + height) * 80);
+  const u16 end = static_cast<u16>((row + height) * kRowBytes);
   u32 from = find(segment, "BODY") + iff::data;
-  u16 line = static_cast<u16>(row * 80 - 80);
-  u8 mask = 0x11;
+  u16 line = static_cast<u16>(row * kRowBytes - kRowBytes);
+  u8 mask = kFirstPlane;
   for (;;) {
     const std::size_t plane = mask & 1 ? 0 : mask & 2 ? 1 : mask & 4 ? 2 : 3;
     u16 at = line;
     if (mask & 1) {
-      at = static_cast<u16>(at + 80);
+      at = static_cast<u16>(at + kRowBytes);
       line = at;
     }
     if (at >= end) break;
     mask = static_cast<u8>((mask << 1) | (mask >> 7));
     for (bool rowDone = false; !rowDone;) {
       const u8 n = farByte(segment, from++);
-      if (n == 0x80) continue;
-      if (n < 0x80) {
+      if (n == iff::skip) continue;
+      if (n < iff::skip) {
         for (int i = 0; i <= n; ++i) planes_[plane][at++] = farByte(segment, from++);
       } else {
         const u8 v = farByte(segment, from++);
@@ -347,11 +456,11 @@ u16 Front::unpackPlanar(u16 segment, u16 row, bool setColours, HdPicture is) {
     }
   }
   // which picture's dots these now are (of the menu's own picture, only the panel on its left)
-  const u32 acrossTo = is == HdPicture::Left ? 130 : is == HdPicture::None ? 0 : static_cast<u32>(width * 8);
+  const u32 acrossTo = is == HdPicture::Left ? kPanelDots : is == HdPicture::None ? 0 : static_cast<u32>(width * 8);
   for (u32 y = 0; y < height; ++y)
     for (u32 x = 0; x < static_cast<u32>(width * 8); ++x)
-      from_[(std::size_t{static_cast<u16>((row + y) * 80)} * 8 + x) % from_.size()] =
-          x < acrossTo ? (static_cast<u32>(is) << 20) | (x << 10) | y : 0;
+      from_[(std::size_t{static_cast<u16>((row + y) * kRowBytes)} * 8 + x) % from_.size()] =
+          x < acrossTo ? (static_cast<u32>(is) << dotOf::picture) | (x << dotOf::across) | y : 0;
   return palette;
 }
 
@@ -364,13 +473,13 @@ u16 Front::unpackChunky(u16 segment, u16 row, u16 bytes) {
   const u16 palette = static_cast<u16>(cmap + iff::data);
   // (colours 32 to 63 are made here, the first 32 at half their strength: by the one routine
   // only, cs:4aa2, which is the one that takes 151 rows)
-  if (bytes == 0x2f40)
-    for (u16 i = 0; i < 0x60; ++i) farByte(segment, static_cast<u32>(palette + 0x60 + i)) = farByte(segment, static_cast<u32>(palette + i)) >> 1;
+  if (bytes == kHalfBytes)
+    for (u16 i = 0; i < kHalvedBytes; ++i) farByte(segment, static_cast<u32>(palette + kHalvedBytes + i)) = farByte(segment, static_cast<u32>(palette + i)) >> 1;
   for (u16 i = 0; i < colours; ++i) farByte(segment, static_cast<u32>(palette + i)) >>= 2;
   u32 from = find(segment, "BODY") + iff::data;
-  u16 at = static_cast<u16>(row * 80);
+  u16 at = static_cast<u16>(row * kRowBytes);
   const u16 end = static_cast<u16>(at + bytes);
-  u8 mask = 0x88;
+  u8 mask = kBeforeFirstPlane;
   auto dot = [&](u8 v) {
     mask = static_cast<u8>((mask << 1) | (mask >> 7));
     planes_[mask & 1 ? 0 : mask & 2 ? 1 : mask & 4 ? 2 : 3][at] = v;
@@ -378,8 +487,8 @@ u16 Front::unpackChunky(u16 segment, u16 row, u16 bytes) {
   };
   for (;;) {
     const u8 n = farByte(segment, from++);
-    if (n == 0x80) continue;
-    if (n < 0x80) {
+    if (n == iff::skip) continue;
+    if (n < iff::skip) {
       for (int i = 0; i <= n; ++i) dot(farByte(segment, from++));
     } else {
       const u8 v = farByte(segment, from++);
@@ -391,7 +500,7 @@ u16 Front::unpackChunky(u16 segment, u16 row, u16 bytes) {
 }
 
 void Front::sendColours(u8 first, u16 picture) {
-  setDac(first, &farByte(dsw(static_cast<u16>(var::pictureSegments + picture)), dsw(static_cast<u16>(var::pictureCmaps + picture))), 0x30);
+  setDac(first, &farByte(dsw(static_cast<u16>(var::pictureSegments + picture)), dsw(static_cast<u16>(var::pictureCmaps + picture))), palette::setBytes);
   level_ = 1.0f;
 }
 
@@ -399,15 +508,15 @@ void Front::sendColours(u8 first, u16 picture) {
 /// the card's memory, laid over what is there.
 void Front::glyph(u16 y, u16 x, u8 letter) {
   u16 from = dsw(static_cast<u16>(var::glyphs + letter * 2));
-  if (from == 0xffff) return;
+  if (from == kNone) return;
   from = static_cast<u16>(from + fontAt_);
-  const u16 to = static_cast<u16>((x >> 3) + y * 80 + drawAt_);
+  const u16 to = static_cast<u16>((x >> 3) + y * kRowBytes + drawAt_);
   const int shift = x & 7;
   for (auto& plane : planes_) {
     u16 s = from, d = to;
-    for (int row = 0; row < 14; ++row, s = static_cast<u16>(s + 80), d = static_cast<u16>(d + 80)) {
+    for (int row = 0; row < menuFont::rows; ++row, s = static_cast<u16>(s + kRowBytes), d = static_cast<u16>(d + kRowBytes)) {
       u8 carry = 0;
-      for (u16 b = 0; b < 3; ++b) {
+      for (u16 b = 0; b < menuFont::bytes; ++b) {
         const u8 v = plane[static_cast<u16>(s + b)];
         plane[static_cast<u16>(d + b)] |= static_cast<u8>((v >> shift) | carry);
         forget(static_cast<u16>(d + b), static_cast<u8>((v >> shift) | carry));
@@ -419,32 +528,32 @@ void Front::glyph(u16 y, u16 x, u8 letter) {
 
 /// cs:2cf2: a page of twelve lines, each of up to 24 letters and set in the middle.
 void Front::text(u16 y, const u8* page) {
-  for (int line = 0; line < 12; ++line, y = static_cast<u16>(y + 0x12)) {
+  for (int line = 0; line < pageText::lines; ++line, y = static_cast<u16>(y + pageText::lineHeight)) {
     u16 left = 0;  // what the original's count has left when it finds the line's end
-    for (u16 i = 0; i < 0x18; ++i)
+    for (u16 i = 0; i < pageText::lineBytes; ++i)
       if (page[i] == 0) {
-        left = static_cast<u16>(0x18 - i - 1);
+        left = static_cast<u16>(pageText::lineBytes - i - 1);
         break;
       }
-    u16 x = static_cast<u16>(0xa4 + ((0x12 * left) >> 1));
-    for (u16 n = static_cast<u16>(0x18 - left); n > 0; --n, x = static_cast<u16>(x + 0x12)) glyph(y, x, *page++);
+    u16 x = static_cast<u16>(pageText::left + ((menuFont::advance * left) >> 1));
+    for (u16 n = static_cast<u16>(pageText::lineBytes - left); n > 0; --n, x = static_cast<u16>(x + menuFont::advance)) glyph(y, x, *page++);
   }
 }
 
 void Front::string(u16 y, u16 x, u16 words) {
-  for (; ds(words) != 0; ++words, x = static_cast<u16>(x + 0x12)) glyph(y, x, ds(words));
+  for (; ds(words) != 0; ++words, x = static_cast<u16>(x + menuFont::advance)) glyph(y, x, ds(words));
 }
 
 /// cs:13ea: the heading kept from a picture (50 bytes by 40 rows of each plane) put back.
 void Front::heading(u16 from, u16 to) {
   for (auto& plane : planes_) {
     u16 at = to;
-    for (int row = 0; row < 40; ++row, at = static_cast<u16>(at + 0x1e))
-      for (int b = 0; b < 50; ++b) plane[at++] = ds(from++);
+    for (int row = 0; row < kHeadingRows; ++row, at = static_cast<u16>(at + (kRowBytes - kHeadingBytes)))
+      for (int b = 0; b < kHeadingBytes; ++b) plane[at++] = ds(from++);
   }
-  for (u32 y = 0; y < 40; ++y)
-    for (u32 x = 0; x < 400; ++x)
-      from_[std::size_t{static_cast<u16>(to + y * 80)} * 8 + x] = (static_cast<u32>(HdPicture::HiScores) << 20) | (x << 10) | y;
+  for (u32 y = 0; y < kHeadingRows; ++y)
+    for (u32 x = 0; x < kHeadingDots; ++x)
+      from_[std::size_t{static_cast<u16>(to + y * kRowBytes)} * 8 + x] = (static_cast<u32>(HdPicture::HiScores) << dotOf::picture) | (x << dotOf::across) | y;
   writeMode_ = 0;
 }
 
@@ -453,18 +562,18 @@ void Front::threeColours(int times, int of) {
                                         {palette::letterMid, 0x25, 0x25, 0x2d},
                                         {palette::letterDark, 0x11, 0x11, 0x19}};
   for (const auto& c : kColours)
-    for (std::size_t part = 0; part < 3; ++part)
-      dac_[c[0] * 3u + part] = static_cast<u8>(((c[part + 1] * (times & 0xff)) / of) & 0x3f);
+    for (std::size_t part = 0; part < kColourBytes; ++part)
+      dac_[c[0] * 3u + part] = static_cast<u8>(((c[part + 1] * (times & 0xff)) / of) & palette::dacMax);
   textLevel_ = static_cast<float>(times < 0 ? 0 : times) / static_cast<float>(of);
 }
 
 void Front::rubOutText(bool both) {
   writeMode(1);
-  peek(0x13);
-  for (const u16 first : {u16{0x14}, static_cast<u16>(kPage1 + 0x14)}) {
-    if (first == 0x14 && !both) continue;
+  peek(kLatchByte);
+  for (const u16 first : {kBeside, static_cast<u16>(kPage1 + kBeside)}) {
+    if (first == kBeside && !both) continue;
     u16 at = first;
-    for (int row = 0; row < 0xf0; ++row, at = static_cast<u16>(at + 80)) fill(at, 0x37);
+    for (int row = 0; row < kRows; ++row, at = static_cast<u16>(at + kRowBytes)) fill(at, kBesideBytes);
   }
 }
 
@@ -472,7 +581,7 @@ void Front::rubOutText(bool both) {
 // what the sound driver calls each frame
 // ---------------------------------------------------------------------------------------
 void Front::frameCallback() {
-  clock_ = static_cast<u16>(clock_ + 3);
+  clock_ = static_cast<u16>(clock_ + kClockStep);
   if (openWidth_ != 0) shownWidth_ = static_cast<u16>((openWidth_ >> 2) * 8);
   if (splitPalette_) colourSelect_ = 1;
   if (scrollerOn_) scroller();
@@ -481,7 +590,7 @@ void Front::frameCallback() {
 void Front::midFrameCallback() {
   if (slideIn_) {
     const u16 at = slideAt_--;
-    if (at == 0xffff) slideIn_ = false;
+    if (at == kNone) slideIn_ = false;
     else setStart(at);
   }
   if (splitPalette_) colourSelect_ = 0;
@@ -502,44 +611,45 @@ void Front::scroller() {
   };
   const i16 count = scrollerCount_;
   if (scrollerShowsText_) {
-    if (count <= -0x5a) {  // cs:29ea
+    if (count <= -scroller::rows) {  // cs:29ea
       scrollerShowsText_ = false;
-      scrollerCount_ = 0x1e0;
+      scrollerCount_ = scroller::shown;
       return restore();
     }
     // cs:2a69: a row of the picture back
     writeMode(1);
-    const i16 row = static_cast<i16>(-count - 0x59);
-    const u16 from = static_cast<u16>(kPanelKept + row * -14);
-    const u16 to = static_cast<u16>(static_cast<u16>(0x5f - row) * 80 + 2);
-    copy(to, from, 14);
-    copy(static_cast<u16>(to + kPage1), from, 14);
+    const i16 row = static_cast<i16>(-count - (scroller::rows - 1));
+    const u16 from = static_cast<u16>(kPanelKept + row * -kPanelTextBytes);
+    const u16 to = static_cast<u16>(static_cast<u16>(kPanelTextTop - row) * kRowBytes + kPanelTextLeft);
+    copy(to, from, kPanelTextBytes);
+    copy(static_cast<u16>(to + kPage1), from, kPanelTextBytes);
     return restore();
   }
-  if (count > -0x5a) {  // cs:2ab7: three rows painted over
+  if (count > -scroller::rows) {  // cs:2ab7: three rows painted over
     scrollerNow_ = scrollerText_;
     writeMode_ = 0;
-    planeMask_ = 0x0f;
-    setReset_ = 2;
-    enableSetReset_ = 0x0f;
-    for (int n = 3;; ) {
-      const u16 at = static_cast<u16>(static_cast<u16>(0x5f - scrollerCount_) * 80 + 1);
-      fill(at, 14);
-      fill(static_cast<u16>(at + kPage1), 14);
+    planeMask_ = kAllPlanes;
+    setReset_ = scroller::colour;
+    enableSetReset_ = kAllPlanes;
+    for (int n = scroller::rowsAFrame;; ) {
+      const u16 at = static_cast<u16>(static_cast<u16>(kPanelTextTop - scrollerCount_) * kRowBytes + (kPanelTextLeft - 1));  // (a byte to the left, too)
+      fill(at, kPanelTextBytes);
+      fill(static_cast<u16>(at + kPage1), kPanelTextBytes);
       if (--n == 0) break;
       --scrollerCount_;
     }
     return restore();
   }
-  if (count > -210) {  // cs:2b0f: one more letter
+  if (count > -(scroller::rows + scroller::letters)) {  // cs:2b0f: one more letter
     writeMode_ = 0;
-    planeMask_ = 2;
+    planeMask_ = scroller::plane;
     enableSetReset_ = keptEnable;
-    const u16 n = static_cast<u16>(-count - 0x5a);
+    const u16 n = static_cast<u16>(-count - scroller::rows);
+    // (kScrollerColumns, as a number: GCC divides a word by a number in 16 bits, by a name in 32)
     const u8 line = static_cast<u8>(n / 12), column = static_cast<u8>(n % 12);
-    u16 at = static_cast<u16>(0x1e52 + static_cast<u16>(static_cast<u8>(line * 9) * 0x50) + column);
-    const u8 letter = cs(static_cast<u16>(scrollerNow_ + static_cast<u8>(12 * line) + column));
-    for (int row = 0; row < 8; ++row, at = static_cast<u16>(at + 80)) {
+    u16 at = static_cast<u16>(kScrollerLetters + static_cast<u16>(static_cast<u8>(line * kScrollerLineRows) * kRowBytes) + column);
+    const u8 letter = cs(static_cast<u16>(scrollerNow_ + static_cast<u8>(kScrollerColumns * line) + column));
+    for (int row = 0; row < kRomRows; ++row, at = static_cast<u16>(at + kRowBytes)) {
       const u8 dots = static_cast<u8>(~romRow(letter, row));
       poke(at, dots);
       poke(static_cast<u16>(at + kPage1), dots);
@@ -547,7 +657,7 @@ void Front::scroller() {
     return restore();
   }
   scrollerShowsText_ = true;
-  scrollerCount_ = 0x1e0;
+  scrollerCount_ = scroller::shown;
   restore();
 }
 
@@ -589,18 +699,18 @@ Front::Task Front::waitTicks(u32 ticks) {
 /// cs:1e18 and cs:1d49: everything fades for eighty frames, the music with it, and the
 /// program ends: for a table, or for good.
 Front::Task Front::leave(int table) {
-  for (int left = 0x50; left > 0; --left) {
-    for (int i = 0; i < 0xc0; ++i) {
-      const unsigned a = ds(static_cast<u16>(var::black + i)) * static_cast<unsigned>(0x50 - left);
+  for (int left = times::leave; left > 0; --left) {
+    for (int i = 0; i < palette::lowBytes; ++i) {
+      const unsigned a = ds(static_cast<u16>(var::black + i)) * static_cast<unsigned>(times::leave - left);
       const unsigned b = ds(static_cast<u16>(var::leavePalette + i)) * static_cast<unsigned>(left);
-      fadeBuffer_[static_cast<std::size_t>(i)] = static_cast<u8>(((a + b) & 0xffff) / 0x50u);
+      fadeBuffer_[static_cast<std::size_t>(i)] = static_cast<u8>(((a + b) & 0xffff) / unsigned{times::leave});
     }
     co_await nextFrame();
-    setDac(0, fadeBuffer_.data(), 0xc0);
-    level_ = static_cast<float>(left) / 80.0f;
-    const u16 volume = static_cast<u16>((left << 8) / 0x50);
-    if ((volume & 0xfff0) != lastVolume_) {
-      lastVolume_ = volume & 0xfff0;
+    setDac(0, fadeBuffer_.data(), palette::lowBytes);
+    level_ = static_cast<float>(left) / static_cast<float>(times::leave);
+    const u16 volume = static_cast<u16>((left << 8) / times::leave);
+    if ((volume & kVolumeStep) != lastVolume_) {
+      lastVolume_ = volume & kVolumeStep;
       music_.volume(volume);
     }
   }
@@ -613,98 +723,98 @@ Front::Task Front::slides() {
   setStart(0);
   slide_ = 1;
   level_ = 0;
-  co_await waitTicks(1);
-  co_await fade(0x14, seg::data, dsw(var::logo0Palette), seg::data, var::black, 0xc0);
-  co_await waitTicks(0x12e);
-  co_await fade(0x14, seg::data, var::black, seg::data, dsw(var::logo0Palette), 0xc0);
+  co_await waitTicks(slideTimes::start);
+  co_await fade(slideTimes::fade, seg::data, dsw(var::logo0Palette), seg::data, var::black, palette::lowBytes);
+  co_await waitTicks(slideTimes::logo0);
+  co_await fade(slideTimes::fade, seg::data, var::black, seg::data, dsw(var::logo0Palette), palette::lowBytes);
   if (!skip_) {
     setStart(screenStart::logo1);
     slide_ = 2;
-    co_await fade(0x0a, seg::data, dsw(var::logo1Palette), seg::data, var::white, 0x300);
-    co_await waitTicks(0x26c);
-    co_await fade(0x14, seg::data, var::black, seg::data, dsw(var::logo1Palette), 0x300);
+    co_await fade(slideTimes::fadeWhite, seg::data, dsw(var::logo1Palette), seg::data, var::white, palette::allBytes);
+    co_await waitTicks(slideTimes::logo1);
+    co_await fade(slideTimes::fade, seg::data, var::black, seg::data, dsw(var::logo1Palette), palette::allBytes);
   }
   if (!skip_) {
-    co_await fade(1, seg::data, var::black, seg::data, var::black, 0x300);
+    co_await fade(slideTimes::gap, seg::data, var::black, seg::data, var::black, palette::allBytes);
     setStart(screenStart::logo2);
     slide_ = 3;
-    co_await fade(0x0a, seg::logo2Upper, dsw(var::logo2Cmap), seg::data, var::white, 0x300);
-    co_await waitTicks(0x37b);
-    co_await fade(0x14, seg::data, var::black, seg::logo2Upper, dsw(var::logo2Cmap), 0x300);
+    co_await fade(slideTimes::fadeWhite, seg::logo2Upper, dsw(var::logo2Cmap), seg::data, var::white, palette::allBytes);
+    co_await waitTicks(slideTimes::logo2);
+    co_await fade(slideTimes::fade, seg::data, var::black, seg::logo2Upper, dsw(var::logo2Cmap), palette::allBytes);
   }
   if (!skip_) {
     setStart(0);
-    for (auto& plane : planes_) std::fill(plane.begin(), plane.begin() + 0x4b00, u8{0});  // (0x2580 words: the screen's 240 rows)
+    for (auto& plane : planes_) std::fill(plane.begin(), plane.begin() + kScreenBytes, u8{0});  // (0x2580 words: the screen's 240 rows)
     fadeBuffer_.fill(0);
-    setDac(0, fadeBuffer_.data(), 0x300);
+    setDac(0, fadeBuffer_.data(), palette::allBytes);
     slide_ = 4;
-    const u16 colours = unpackChunky(seg::presents, 0, 0x2f40);
+    const u16 colours = unpackChunky(seg::presents, slideRows::presents, kHalfBytes);
     setw(var::presentsCmap, colours);
-    co_await fade(0x08, seg::presents, colours, seg::data, var::black, 0xc0);
-    co_await waitTicks(0);
-    co_await fade(0x14, seg::data, var::black, seg::presents, colours, 0xc0);
+    co_await fade(slideTimes::fadePresents, seg::presents, colours, seg::data, var::black, palette::lowBytes);
+    co_await waitTicks(slideTimes::presents);
+    co_await fade(slideTimes::fade, seg::data, var::black, seg::presents, colours, palette::lowBytes);
   }
   if (!skip_) {
     clearVideo();
     mode_ = Mode::Planar480;  // (the BIOS's mode 12h)
     start_ = 0;
     selectBits_ = false;
-    co_await fade(1, seg::data, var::black, seg::data, var::black, 0xc0);
+    co_await fade(slideTimes::gap, seg::data, var::black, seg::data, var::black, palette::lowBytes);
     slide_ = 5;
-    const u16 colours = unpackPlanar(seg::pflogo, 0x96, false);
+    const u16 colours = unpackPlanar(seg::pflogo, slideRows::pflogo, false);
     setw(var::pflogoCmap, colours);
-    co_await fade(0x14, seg::pflogo, colours, seg::data, var::black, 0xc0);
-    co_await waitTicks(0x5dc);
-    co_await fade(0x14, seg::data, var::black, seg::pflogo, colours, 0xc0);
+    co_await fade(slideTimes::fade, seg::pflogo, colours, seg::data, var::black, palette::lowBytes);
+    co_await waitTicks(slideTimes::pflogo);
+    co_await fade(slideTimes::fade, seg::data, var::black, seg::pflogo, colours, palette::lowBytes);
   }
-  if (skip_) {  // cs:09bd
-    co_await fade(1, seg::data, var::black, seg::data, var::black, 0xc0);
-    co_await fade(1, seg::data, var::black, seg::data, var::black, 0xc0);
+  if (skip_) {  // cs:09bd: two frames of black
+    co_await fade(slideTimes::gap, seg::data, var::black, seg::data, var::black, palette::lowBytes);
+    co_await fade(slideTimes::gap, seg::data, var::black, seg::data, var::black, palette::lowBytes);
   }
   slide_ = 0;
   co_await nextFrame();
   mode_ = Mode::Planar240;
   co_await nextFrame();
   fadeBuffer_.fill(0);
-  setDac(0, fadeBuffer_.data(), 0x300);
+  setDac(0, fadeBuffer_.data(), palette::allBytes);
 }
 
 Front::Task Front::banners(u16 which) {
   for (u16 at = var::warpTable;;) {
     const u8 row = ds(at);
-    if (row != 0xff) {
-      copy(static_cast<u16>(0x334 + row * 0x50), static_cast<u16>(kBanners + which + row * 0x37), 0x37);  // cs:260a
-      const u8 other = static_cast<u8>(0x5e - row);                                                        // cs:262c
+    if (row != kWarpEnd) {
+      copy(static_cast<u16>(kBannerTop + row * kRowBytes), static_cast<u16>(kBanners + which + row * kBesideBytes), kBesideBytes);  // cs:260a
+      const u8 other = static_cast<u8>(kBannerLast - row);                                                                        // cs:262c
       bannerTop_[row % 96] = bannerBottom_[other % 96] = true;
-      copy(static_cast<u16>(0x2a44 + other * 0x50), static_cast<u16>(kBannersLower + which + other * 0x37), 0x37);
+      copy(static_cast<u16>(kBannerBottom + other * kRowBytes), static_cast<u16>(kBannersLower + which + other * kBesideBytes), kBesideBytes);
       ++at;
       continue;
     }
-    if (ds(++at) == 0xff) break;
+    if (ds(++at) == kWarpEnd) break;
     co_await nextFrame();
   }
 }
 
 Front::Task Front::rubOutBanners() {
-  peek(0x13);
+  peek(kLatchByte);
   for (u16 at = var::warpTable;;) {
     const u8 row = ds(at);
-    if (row != 0xff) {
-      bannerTop_[static_cast<u8>(0x5e - row) % 96] = bannerBottom_[row % 96] = false;
-      fill(static_cast<u16>(0x334 + static_cast<u8>(0x5e - row) * 0x50), 0x37);  // cs:2654
-      fill(static_cast<u16>(0x2a44 + row * 0x50), 0x37);                         // cs:266f
+    if (row != kWarpEnd) {
+      bannerTop_[static_cast<u8>(kBannerLast - row) % 96] = bannerBottom_[row % 96] = false;
+      fill(static_cast<u16>(kBannerTop + static_cast<u8>(kBannerLast - row) * kRowBytes), kBesideBytes);  // cs:2654
+      fill(static_cast<u16>(kBannerBottom + row * kRowBytes), kBesideBytes);                             // cs:266f
       ++at;
       continue;
     }
-    if (ds(++at) == 0xff) break;
+    if (ds(++at) == kWarpEnd) break;
     co_await nextFrame();
   }
 }
 
 Front::Task Front::closePage() {
   setStart(kPage1);
-  for (int n = 0; n < 0x14; ++n) {
-    threeColours(0x13 - n, 0x14);
+  for (int n = 0; n < times::pageFade; ++n) {
+    threeColours(times::pageFade - 1 - n, times::pageFade);
     co_await nextFrame();
   }
   rubOutText(true);
@@ -727,11 +837,11 @@ Front::Task Front::page() {
       const u16 at = pageAt_;
       pageAt_ = static_cast<u16>(pageAt_ + 2);
       words = dsw(static_cast<u16>(at + var::pages));
-      if (words == 0xffff) words = dsw(var::pages);
+      if (words == kScoresPage) words = dsw(var::pages);
       if (words != 0) break;
       pageAt_ = 2;
     }
-    scores = dsw(static_cast<u16>(pageAt_ + var::pageTaken)) == 0xffff;
+    scores = dsw(static_cast<u16>(pageAt_ + var::pageTaken)) == kScoresPage;
     // (the tall screen has all four tables' scores on one page: the other pair's page, which
     // would come next, is passed over)
     if (!(tall() && scores && lastWasScores_)) break;
@@ -741,13 +851,13 @@ Front::Task Front::page() {
   drawAt_ = kPage1;
   fontAt_ = kLqLetters;
   if (scores) {  // cs:13cb
-    heading(var::hiscoresLq, 0xae3b);
-    drawAt_ = static_cast<u16>(drawAt_ + 0x320);
+    heading(var::hiscoresLq, static_cast<u16>(kPage1 + kHeadingAt));
+    drawAt_ = static_cast<u16>(drawAt_ + kUnderHeading);
   }
   writeMode_ = 0;
-  text(0x0e, words);
-  for (int n = 0; n < 5; ++n) {
-    threeColours(4 - n, 5);
+  text(pageText::top, words);
+  for (int n = 0; n < times::pageGap; ++n) {
+    threeColours(times::pageGap - 1 - n, times::pageGap);
     co_await nextFrame();
   }
   setStart(kPage1);
@@ -755,18 +865,18 @@ Front::Task Front::page() {
   drawAt_ = 0;
   fontAt_ = 0;
   if (scores) {  // cs:13ac
-    heading(var::hiscoresHq, 0x17);
-    drawAt_ = static_cast<u16>(drawAt_ + 0x320);
+    heading(var::hiscoresHq, kHeadingAt);
+    drawAt_ = static_cast<u16>(drawAt_ + kUnderHeading);
   }
-  text(0x0e, words);
-  for (int left = 0x14; left > 0; --left) {
-    threeColours(0x14 - left, 0x14);
+  text(pageText::top, words);
+  for (int left = times::pageFade; left > 0; --left) {
+    threeColours(times::pageFade - left, times::pageFade);
     co_await nextFrame();
   }
   setStart(0);
   wantOptions_ = false;
   launch_ = -1;
-  for (int left = 0x1a4; left > 0; --left) {
+  for (int left = times::page; left > 0; --left) {
     co_await nextFrame();
     const u8 k = takeKey();
     if (k == scan::escape || k == scan::enter || k == scan::space) break;
@@ -787,10 +897,15 @@ Front::Task Front::page() {
 void Front::optionText(int row, u16& words) {
   switch (row) {
     case 0: words = ds(var::balls) ? optionWords::balls5 : optionWords::balls3; break;
-    case 1: words = ds(var::angle) == 1 ? optionWords::low : ds(var::angle) == 2 ? kHigher : optionWords::high; break;
+    case 1: words = ds(var::angle) == cfg::angleLow ? optionWords::low : ds(var::angle) == cfg::angleHigher ? kHigher : optionWords::high; break;
     case 2: words = dsw(static_cast<u16>(optionWords::scrollSpeeds + ds(var::scrollSpeed) * 2)); break;
     case 3: words = ds(var::noMusic) ? optionWords::off : optionWords::on; break;
-    case 4: words = ds(var::resolution) == 1 ? optionWords::high : ds(var::resolution) == 2 ? kFull : ds(var::resolution) == 3 ? kTall : optionWords::normal; break;
+    case 4:
+      words = ds(var::resolution) == cfg::resolutionHigh   ? optionWords::high
+              : ds(var::resolution) == cfg::resolutionFull ? kFull
+              : ds(var::resolution) == cfg::resolutionTall ? kTall
+                                                           : optionWords::normal;
+      break;
     case 5: words = ds(var::mono) ? optionWords::mono : optionWords::color; break;
     // this version's two
     case 6: words = options_.originalPictures ? kOriginal : kRemaster; break;
@@ -812,11 +927,11 @@ void Front::changeOption(int row) {
   switch (row) {
     case 0: ds(var::balls) ^= 1; break;
     // (the original has high and low; this version's steeper one comes after high)
-    case 1: ds(var::angle) = ds(var::angle) == 0 ? 2 : ds(var::angle) == 2 ? 1 : 0; break;
-    case 2: ds(var::scrollSpeed) = ds(var::scrollSpeed) >= 2 ? 0 : static_cast<u8>(ds(var::scrollSpeed) + 1); break;
+    case 1: ds(var::angle) = ds(var::angle) == cfg::angleHigh ? cfg::angleHigher : ds(var::angle) == cfg::angleHigher ? cfg::angleLow : cfg::angleHigh; break;
+    case 2: ds(var::scrollSpeed) = ds(var::scrollSpeed) >= cfg::scrollSoft ? cfg::scrollHard : static_cast<u8>(ds(var::scrollSpeed) + 1); break;
     case 3: ds(var::noMusic) ^= 1; break;
     // (and after the original's two sizes of screen, this version's whole table, twice)
-    case 4: ds(var::resolution) = ds(var::resolution) >= 3 ? 0 : static_cast<u8>(ds(var::resolution) + 1); break;
+    case 4: ds(var::resolution) = ds(var::resolution) >= cfg::resolutionTall ? cfg::resolutionNormal : static_cast<u8>(ds(var::resolution) + 1); break;
     case 5: ds(var::mono) ^= 1; break;
     case 6: options_.originalPictures = !options_.originalPictures; break;
     case 7: options_.originalSound = !options_.originalSound; break;
@@ -825,8 +940,8 @@ void Front::changeOption(int row) {
     case 9: if (portableLock_ == PortableLock::None && !portableError_) options_.portable = !options_.portable; break;
     default: optionsDone_ = true; break;
   }
-  options_.balls = ds(var::balls) ? 5 : 3;
-  options_.angle = ds(var::angle) == 1 ? Angle::Low : ds(var::angle) == 2 ? Angle::Higher : Angle::High;
+  options_.balls = ds(var::balls) ? cfg::manyBalls : cfg::fewBalls;
+  options_.angle = ds(var::angle) == cfg::angleLow ? Angle::Low : ds(var::angle) == cfg::angleHigher ? Angle::Higher : Angle::High;
   options_.scrollSpeed = static_cast<ScrollSpeed>(ds(var::scrollSpeed));
   options_.noMusic = ds(var::noMusic) != 0;
   options_.resolution = static_cast<Resolution>(ds(var::resolution));
@@ -856,17 +971,17 @@ Front::Task Front::chooseOptions() {
   for (bool moved = true;;) {
     // the page's options, among all of them, and the rows: theirs, turning, saving
     const int first = optionsShown_ ? kFirstOptions : 0, count = optionsShown_ ? kOptions - kFirstOptions : kFirstOptions;
-    const auto rowY = [&](int row) { return static_cast<u16>((row < count ? row : row + 1) * 0x12 + 0x32); };  // (the empty line before turning)
+    const auto rowY = [&](int row) { return static_cast<u16>((row < count ? row : row + 1) * pageText::lineHeight + kOptionsTop); };  // (the empty line before turning)
     if (moved) {  // cs:3f5a: the mark beside the row
       const u16 y = rowY(optionRow_);
       writeMode(1);
-      peek(0x13);
-      for (const u16 at0 : {u16{0x0fb5}, u16{0xbdd9}}) {
+      peek(kLatchByte);
+      for (const u16 at0 : {kMarkAt, static_cast<u16>(kPage1 + kMarkAt)}) {
         u16 at = at0;
-        for (int row = 0; row < 0x8c + 0x12; ++row, at = static_cast<u16>(at + 80)) fill(at, 3);  // (a row more)
+        for (int row = 0; row < kMarkRows + pageText::lineHeight; ++row, at = static_cast<u16>(at + kRowBytes)) fill(at, kMarkBytes);  // (a row more)
       }
       writeMode_ = 0;
-      co_await say(y, 0xaf, optionWords::mark);
+      co_await say(y, kMarkX, optionWords::mark);
       moved = false;
     }
     if (optionsDone_) co_return;
@@ -897,14 +1012,14 @@ Front::Task Front::chooseOptions() {
         u16 length = 0;
         for (u8* at = optionWord(row); ds(static_cast<u16>(words + length)) != 0; ++length)
           at[length] = ds(static_cast<u16>(words + length));
-        const u16 x = 0x12 * 0x0d + 0xda;  // (cs:4155; its row times 0x2d00 is of a row already lost)
-        const u16 width = static_cast<u16>(((length * 0x12) >> 3) + 2);
+        const u16 x = kWordX;  // (cs:4155; its row times 0x2d00 is of a row already lost)
+        const u16 width = static_cast<u16>(((length * menuFont::advance) >> 3) + 2);
         const u16 y = rowY(optionRow_);
         writeMode(1);
-        peek(0x13);
+        peek(kLatchByte);
         for (const u16 page : {u16{0}, kPage1}) {
-          u16 at = static_cast<u16>(y * 80 + (x >> 3) + page);
-          for (int r = 0; r < 14; ++r, at = static_cast<u16>(at + 80)) fill(at, width);
+          u16 at = static_cast<u16>(y * kRowBytes + (x >> 3) + page);
+          for (int r = 0; r < menuFont::rows; ++r, at = static_cast<u16>(at + kRowBytes)) fill(at, width);
         }
         writeMode_ = 0;
         co_await say(y, x, words);
@@ -922,13 +1037,13 @@ Front::Task Front::turnOptions(int page) {
     setStart(shown);
     co_await nextFrame();
     writeMode(1);
-    peek(0x13);
-    u16 to = static_cast<u16>(at + 0x14);
-    for (int row = 0; row < 0xf0; ++row, to = static_cast<u16>(to + 80)) fill(to, 0x37);  // (as cs:26b1)
+    peek(kLatchByte);
+    u16 to = static_cast<u16>(at + kBeside);
+    for (int row = 0; row < kRows; ++row, to = static_cast<u16>(to + kRowBytes)) fill(to, kBesideBytes);  // (as cs:26b1)
     writeMode_ = 0;
     drawAt_ = at;
     fontAt_ = 0;
-    text(0x0e, optionsPages_[static_cast<std::size_t>(page)].data());
+    text(pageText::top, optionsPages_[static_cast<std::size_t>(page)].data());
   }
   drawAt_ = 0;
 }
@@ -946,30 +1061,30 @@ Front::Task Front::optionsMenu() {
   colourSelect_ = 0;
   drawAt_ = kPage1;
   fontAt_ = kLqLetters;
-  text(0x0e, optionsPages_[static_cast<std::size_t>(optionsShown_)].data());
-  for (int n = 0; n < 5; ++n) {
-    threeColours(4 - n, 5);
+  text(pageText::top, optionsPages_[static_cast<std::size_t>(optionsShown_)].data());
+  for (int n = 0; n < times::pageGap; ++n) {
+    threeColours(times::pageGap - 1 - n, times::pageGap);
     co_await nextFrame();
   }
   setStart(kPage1);
   co_await nextFrame();
   drawAt_ = 0;
   fontAt_ = 0;
-  text(0x0e, optionsPages_[static_cast<std::size_t>(optionsShown_)].data());
+  text(pageText::top, optionsPages_[static_cast<std::size_t>(optionsShown_)].data());
   co_await nextFrame();
-  for (int left = 0x28; left > 0; --left) {
-    threeColours(0x28 - left, 0x28);
+  for (int left = times::optionsFade; left > 0; --left) {
+    threeColours(times::optionsFade - left, times::optionsFade);
     co_await nextFrame();
   }
   setStart(0);
   co_await nextFrame();
   writeMode(1);
-  peek(0x13);
-  for (u16 at = static_cast<u16>(kPage1 + 0x14), row = 0; row < 0xf0; ++row, at = static_cast<u16>(at + 80)) fill(at, 0x37);  // cs:26b1
+  peek(kLatchByte);
+  for (u16 at = static_cast<u16>(kPage1 + kBeside), row = 0; row < kRows; ++row, at = static_cast<u16>(at + kRowBytes)) fill(at, kBesideBytes);  // cs:26b1
   writeMode_ = 0;
   drawAt_ = kPage1;
   fontAt_ = 0;
-  text(0x0e, optionsPages_[static_cast<std::size_t>(optionsShown_)].data());
+  text(pageText::top, optionsPages_[static_cast<std::size_t>(optionsShown_)].data());
 
   co_await chooseOptions();
 
@@ -978,16 +1093,16 @@ Front::Task Front::optionsMenu() {
   setStart(0);
   co_await nextFrame();
   writeMode(1);
-  peek(0x13);
-  for (u16 at = static_cast<u16>(kPage1 + 0x14), row = 0; row < 0xf0; ++row, at = static_cast<u16>(at + 80)) fill(at, 0x37);
+  peek(kLatchByte);
+  for (u16 at = static_cast<u16>(kPage1 + kBeside), row = 0; row < kRows; ++row, at = static_cast<u16>(at + kRowBytes)) fill(at, kBesideBytes);
   writeMode_ = 0;
   drawAt_ = kPage1;
   fontAt_ = kLqLetters;
-  text(0x0e, optionsPages_[static_cast<std::size_t>(optionsShown_)].data());
-  text(0x0e, optionsPages_[static_cast<std::size_t>(optionsShown_)].data());
+  text(pageText::top, optionsPages_[static_cast<std::size_t>(optionsShown_)].data());
+  text(pageText::top, optionsPages_[static_cast<std::size_t>(optionsShown_)].data());
   setStart(kPage1);
-  for (int n = 0; n < 0x28; ++n) {
-    threeColours(0x27 - n, 0x28);
+  for (int n = 0; n < times::optionsFade; ++n) {
+    threeColours(times::optionsFade - 1 - n, times::optionsFade);
     co_await nextFrame();
   }
   rubOutText(true);
@@ -1011,7 +1126,7 @@ Front::Task Front::optionsMenu() {
 Front::Task Front::menu() {
   clearVideo();
   mode_ = Mode::Planar240;
-  co_await fade(3, seg::data, var::black, seg::data, var::black, 0xc0);
+  co_await fade(times::black, seg::data, var::black, seg::data, var::black, palette::lowBytes);
   co_await nextFrame();
   selectBits_ = true;
   // two headings, each unpacked to the top of the screen and kept (cs:1377)
@@ -1020,13 +1135,13 @@ Front::Task Front::menu() {
     u16 to = keep;
     for (auto& plane : planes_) {
       u16 at = 0;
-      for (int row = 0; row < 40; ++row, at = static_cast<u16>(at + 0x1e))
-        for (int b = 0; b < 50; ++b) ds(to++) = plane[at++];
+      for (int row = 0; row < kHeadingRows; ++row, at = static_cast<u16>(at + (kRowBytes - kHeadingBytes)))
+        for (int b = 0; b < kHeadingBytes; ++b) ds(to++) = plane[at++];
     }
   }
-  openWidth_ = 0x82;
+  openWidth_ = kOpenPanel;
   co_await nextFrame();
-  for (u16 i = 0; i < 14; i = static_cast<u16>(i + 2))  // cs:1449: the menu's picture, its letters, the four banners
+  for (u16 i = 0; i < pictures::end; i = static_cast<u16>(i + 2))  // cs:1449: the menu's picture, its letters, the four banners
     setw(static_cast<u16>(var::pictureCmaps + i),
          unpackPlanar(dsw(static_cast<u16>(var::pictureSegments + i)), dsw(static_cast<u16>(var::pictureRows + i)), false,
                       i == pictures::left     ? HdPicture::Left
@@ -1034,18 +1149,20 @@ Front::Task Front::menu() {
                                               : HdPicture::None));
   writeMode(1);
   {  // cs:2d3a: the banners' rows, 55 bytes of each, moved up against each other
-    u16 from = 0x5cd0, to = 0x5cb7;  // (kBanners on, from the second row: the first is in place)
-    for (int row = 0; row < 0x17b; ++row, from = static_cast<u16>(from + 0x50), to = static_cast<u16>(to + 0x37)) copy(to, from, 0x37);
+    u16 from = kBanners + kRowBytes, to = kBanners + kBesideBytes;  // (from the second row: the first is in place)
+    for (int row = 0; row < kBanners4 * kBannerRows - 1; ++row, from = static_cast<u16>(from + kRowBytes), to = static_cast<u16>(to + kBesideBytes))
+      copy(to, from, kBesideBytes);
   }
-  copy(kPage1, 0, 0x4b00);  // cs:2d74: the second page
-  {                         // cs:2b8a: what is under the panel's text
-    u16 from = 0x1db2, to = 0xfb14;
-    for (int row = 0; row < 0x5a; ++row, from = static_cast<u16>(from + 0x50), to = static_cast<u16>(to + 0x0e)) copy(to, from, 0x0e);
+  copy(kPage1, 0, kScreenBytes);  // cs:2d74: the second page
+  {                               // cs:2b8a: what is under the panel's text
+    u16 from = kPanelText, to = kPanelKept;
+    for (int row = 0; row < kPanelTextRows; ++row, from = static_cast<u16>(from + kRowBytes), to = static_cast<u16>(to + kPanelTextBytes))
+      copy(to, from, kPanelTextBytes);
   }
-  setStart(0x10);
-  co_await fade(3, seg::data, var::black, seg::data, var::black, 0xc0);
+  setStart(kSlideIn);
+  co_await fade(times::black, seg::data, var::black, seg::data, var::black, palette::lowBytes);
   auto keepColours = [this](u16 top, u16 bottom) {  // for the fade when the menu is left
-    for (u16 i = 0; i < 0x30; ++i) {
+    for (u16 i = 0; i < palette::setBytes; ++i) {
       ds(static_cast<u16>(var::leavePaletteTop + i)) =
           farByte(dsw(static_cast<u16>(var::pictureSegments + top)), static_cast<u32>(dsw(static_cast<u16>(var::pictureCmaps + top)) + i));
       ds(static_cast<u16>(var::leavePalette + i)) =
@@ -1056,27 +1173,27 @@ Front::Task Front::menu() {
   sendColours(palette::bottom, pictures::table3);
   keepColours(pictures::table1, pictures::table2);
   splitPalette_ = true;
-  openWidth_ = 0x82;
-  for (int n = 0; n < 4; ++n) co_await nextFrame();
-  slideAt_ = 0x10;
+  openWidth_ = kOpenPanel;
+  for (int n = 0; n < times::openWait; ++n) co_await nextFrame();
+  slideAt_ = kSlideIn;
   slideIn_ = true;
-  for (int n = 0; n < 0x14; ++n) co_await nextFrame();  // (the original lets go of keys here; see waitTicks)
-  openWidth_ = 0x140;
+  for (int n = 0; n < times::slideIn; ++n) co_await nextFrame();  // (the original lets go of keys here; see waitTicks)
+  openWidth_ = kOpenWhole;
   writeMode(1);
   // (cs:15fa to cs:1a23 asks a question out of the manual: not here)
   scrollerOn_ = true;
   co_await rubOutBanners();
-  idle_ = 0x21c;
+  idle_ = times::banners;
 
   for (;;) {  // cs:1a55
-    for (int n = 0; n < 0x14; ++n) {
+    for (int n = 0; n < times::bannersGap; ++n) {
       co_await nextFrame();
       if (key_ == scan::space) {
         takeKey();
         break;
       }
     }
-    if (!(dsw(var::tablePair) & 2)) {
+    if (!(dsw(var::tablePair) & kPair34)) {
       sendColours(palette::top, pictures::table1);
       sendColours(palette::bottom, pictures::table2);
       keepColours(pictures::table1, pictures::table2);
@@ -1088,7 +1205,7 @@ Front::Task Front::menu() {
       keepColours(pictures::table3, pictures::table4);
       splitPalette_ = true;
       co_await banners(kTables34);
-      idle_ = 0x21c;
+      idle_ = times::banners;
     }
     enum class Next { Banners, Page } next = Next::Banners;
     for (;;) {  // cs:1b3a
@@ -1107,20 +1224,20 @@ Front::Task Front::menu() {
         break;
       }
       if (k == scan::enter) {  // cs:1ba7
-        setw(var::tablePair, dsw(var::tablePair) ^ 2);
+        setw(var::tablePair, dsw(var::tablePair) ^ kPair34);
         pageAt_ = static_cast<u16>(pageAt_ + 2);
         // (as the original: the place in the list read as an address, and set to one)
         const bool none = dsw(pageAt_) == 0;
         if (none) pageAt_ = var::textPages;
         setw(var::pages, none ? var::scoresTables12 : var::scoresTables34);
         co_await rubOutBanners();
-        idle_ = 0x21c;
+        idle_ = times::banners;
         break;
       }
       if (k == scan::space || --idle_ == 0) {  // cs:1bde
-        setw(var::tablePair, dsw(var::tablePair) ^ 2);
+        setw(var::tablePair, dsw(var::tablePair) ^ kPair34);
         setw(var::pages, dsw(var::tablePair) == 0 ? var::scoresTables34 : var::scoresTables12);
-        idle_ = 0x21c;
+        idle_ = times::banners;
         next = Next::Page;
         break;
       }
@@ -1142,19 +1259,19 @@ Front::Task Front::menu() {
 
 Front::Task Front::main() {
   // cs:23df: the first three slides, two pictures each, into one tall screen
-  setw(var::logo0Cmap, unpackChunky(seg::logo0Upper, 0x000, 0x2f40));
-  for (u16 i = 0; i < 0x300; ++i) ds(i) = farByte(seg::logo0Upper, static_cast<u32>(dsw(var::logo0Cmap) + i));
-  unpackChunky(seg::logo0Lower, 0x08b, 0x2f40);
-  setw(var::logo1Cmap, unpackChunky(seg::logo1Upper, 0x0f0, 0x3e80));
-  for (u16 i = 0; i < 0x300; ++i) ds(static_cast<u16>(var::logo1Colours + i)) = farByte(seg::logo1Upper, static_cast<u32>(dsw(var::logo1Cmap) + i));
-  unpackChunky(seg::logo1Lower, 0x16d, 0x2f40);
-  setw(var::logo2Cmap, unpackChunky(seg::logo2Upper, 0x1ec, 0x3e80));
-  unpackChunky(seg::logo2Lower, 0x25a, 0x2f40);
+  setw(var::logo0Cmap, unpackChunky(seg::logo0Upper, slideRows::logo0Upper, kHalfBytes));
+  for (u16 i = 0; i < palette::allBytes; ++i) ds(i) = farByte(seg::logo0Upper, static_cast<u32>(dsw(var::logo0Cmap) + i));
+  unpackChunky(seg::logo0Lower, slideRows::logo0Lower, kHalfBytes);
+  setw(var::logo1Cmap, unpackChunky(seg::logo1Upper, slideRows::logo1Upper, kTallHalfBytes));
+  for (u16 i = 0; i < palette::allBytes; ++i) ds(static_cast<u16>(var::logo1Colours + i)) = farByte(seg::logo1Upper, static_cast<u32>(dsw(var::logo1Cmap) + i));
+  unpackChunky(seg::logo1Lower, slideRows::logo1Lower, kHalfBytes);
+  setw(var::logo2Cmap, unpackChunky(seg::logo2Upper, slideRows::logo2Upper, kTallHalfBytes));
+  unpackChunky(seg::logo2Lower, slideRows::logo2Lower, kHalfBytes);
 
   setw(var::tablePair, 0);
   pageAt_ = 2;
-  if (returningFrom_ >= 2) {  // back from one of the last two tables: theirs are the banners shown
-    setw(var::tablePair, 2);
+  if (returningFrom_ >= kTable3) {  // back from one of the last two tables: theirs are the banners shown
+    setw(var::tablePair, kPair34);
     pageAt_ = 4;
     setw(var::pages, var::scoresTables34);
   }
@@ -1176,7 +1293,7 @@ void Front::draw(u8* frame, Rgb* colours, HdFrame* hd) const {
     hd->reset(kWidth, height());
     hd->fade.fill(level_);
     hd->fade[static_cast<std::size_t>(HdPicture::HiScores)] = level_ * textLevel_;
-    hd->fadeColor = fadeWhite_ ? Rgb{0xff, 0xff, 0xff} : Rgb{};
+    hd->fadeColor = fadeWhite_ ? kWhite : Rgb{};
   }
   if (!tall()) {
     drawScreen(frame, hd, 0);
@@ -1187,19 +1304,19 @@ void Front::draw(u8* frame, Rgb* colours, HdFrame* hd) const {
     drawTallMenu(frame, hd);
   }
   auto wide = [](u8 v) { return static_cast<u8>((v << 2) | (v >> 4)); };
-  for (std::size_t i = 0; i < 256; ++i) colours[i] = Rgb{wide(dac_[i * 3]), wide(dac_[i * 3 + 1]), wide(dac_[i * 3 + 2])};
+  for (std::size_t i = 0; i < palette::colours; ++i) colours[i] = Rgb{wide(dac_[i * 3]), wide(dac_[i * 3 + 1]), wide(dac_[i * 3 + 2])};
   if (tall() && mode_ == Mode::Planar240) {
     // the four banners' own colours, a set of sixteen each, as bright as the screen is
-    for (std::size_t t = 0; t < 4; ++t) {
+    for (std::size_t t = 0; t < kBanners4; ++t) {
       const u16 picture = static_cast<u16>(pictures::table1 + t * 2);
       const u16 segment = const_cast<Front*>(this)->dsw(static_cast<u16>(var::pictureSegments + picture));
       const u16 at = const_cast<Front*>(this)->dsw(static_cast<u16>(var::pictureCmaps + picture));
-      for (std::size_t i = 0; i < 16; ++i) {
+      for (std::size_t i = 0; i < palette::setColours; ++i) {
         auto part = [&](std::size_t n) {
-          const u8 v = const_cast<Front*>(this)->farByte(segment, static_cast<u32>(at + i * 3 + n)) & 0x3f;
+          const u8 v = const_cast<Front*>(this)->farByte(segment, static_cast<u32>(at + i * 3 + n)) & palette::dacMax;
           return static_cast<u8>(static_cast<float>(wide(v)) * level_);
         };
-        colours[kTallBanners + t * 16 + i] = Rgb{part(0), part(1), part(2)};
+        colours[kTallBanners + t * palette::setColours + i] = Rgb{part(0), part(1), part(2)};
       }
     }
   }
@@ -1216,17 +1333,17 @@ void Front::drawScreen(u8* frame, HdFrame* hd, int top) const {
   for (int y = 0; y < kHeight; ++y) {
     u8* out = frame + static_cast<std::size_t>(y + top) * kWidth;
     if (mode_ == Mode::Chunky320) {
-      const u16 row = static_cast<u16>(start_ + (y / 2) * 80);
+      const u16 row = static_cast<u16>(start_ + (y / 2) * kRowBytes);
       for (int x = 0; x < kWidth; ++x) {
         out[x] = planes_[static_cast<std::size_t>((x / 2) & 3)][static_cast<u16>(row + x / 8)];
-        if (hd && slide_ >= 1 && slide_ <= 4)
-          mark(x, y, static_cast<HdPicture>(slide_), static_cast<u32>(x * 4), static_cast<u32>(y * 4), HdFrame::kHalfX | HdFrame::kHalfY, 320, 240);
+        if (hd && slide_ >= 1 && slide_ <= kChunkySlides)
+          mark(x, y, static_cast<HdPicture>(slide_), static_cast<u32>(x * 4), static_cast<u32>(y * 4), HdFrame::kHalfX | HdFrame::kHalfY, kChunkyWidth,
+               kChunkyHeight);
       }
       continue;
     }
-    const u16 row = static_cast<u16>(start_ + (mode_ == Mode::Planar240 ? y / 2 : y) * 80);
-    // (the driver's callback part way down the screen is at line 230 of the 480)
-    const u8 upper = selectBits_ ? static_cast<u8>(((y < 0xe6 ? selectTop_ : selectBottom_) & 3) << 4) : 0;
+    const u16 row = static_cast<u16>(start_ + (mode_ == Mode::Planar240 ? y / 2 : y) * kRowBytes);
+    const u8 upper = selectBits_ ? static_cast<u8>(((y < kSplitRow ? selectTop_ : selectBottom_) & kSelectBits) << kSelectShift) : 0;
     for (int x = 0; x < kWidth; ++x) {
       if (x >= shownWidth_) {
         out[x] = 0;
@@ -1239,15 +1356,15 @@ void Front::drawScreen(u8* frame, HdFrame* hd, int top) const {
       out[x] = static_cast<u8>(upper | colour);
       if (!hd) continue;
       if (mode_ == Mode::Planar480) {
-        if (slide_ == 5) mark(x, y, HdPicture::Slide5, static_cast<u32>(x * 8), static_cast<u32>(y * 8), 0, 640, 480);
+        if (slide_ == kLastSlide) mark(x, y, HdPicture::Slide5, static_cast<u32>(x * 8), static_cast<u32>(y * 8), 0, kWidth, kHeight);
         continue;
       }
       const u32 dot = from_[std::size_t{at} * 8 + static_cast<std::size_t>(x & 7)];
       if (dot == 0) continue;
-      const auto is = static_cast<HdPicture>(dot >> 20);
+      const auto is = static_cast<HdPicture>(dot >> dotOf::picture);
       const bool banner = is >= HdPicture::Table1 && is <= HdPicture::Table4;
-      mark(x, y, is, ((dot >> 10) & 0x3ff) * 8, (dot & 0x3ff) * 8 + static_cast<u32>(y & 1) * 4, HdFrame::kHalfY,
-           is == HdPicture::Left ? 130 : banner ? 440 : 400, is == HdPicture::Left ? 240 : banner ? 95 : 40);
+      mark(x, y, is, ((dot >> dotOf::across) & dotOf::field) * 8, (dot & dotOf::field) * 8 + static_cast<u32>(y & 1) * 4, HdFrame::kHalfY,
+           is == HdPicture::Left ? kPanelDots : banner ? kBannerDots : kHeadingDots, is == HdPicture::Left ? kPanelRows : banner ? kBannerRows : kHeadingRows);
     }
   }
 }
@@ -1271,9 +1388,9 @@ void Front::drawTallMenu(u8* frame, HdFrame* hd) const {
     return static_cast<u8>(((planes_[0][at] >> bit) & 1) | (((planes_[1][at] >> bit) & 1) << 1) | (((planes_[2][at] >> bit) & 1) << 2) |
                            (((planes_[3][at] >> bit) & 1) << 3));
   };
-  auto upper = [&](int row) { return selectBits_ ? static_cast<u8>((((row * 2) < 0xe6 ? selectTop_ : selectBottom_) & 3) << 4) : u8{0}; };
-  const bool settled = (start_ == 0 || start_ == kPage1) && shownWidth_ >= 160;
-  static constexpr int kBanner[4] = {12, 132, 252, 372};
+  auto upper = [&](int row) { return selectBits_ ? static_cast<u8>((((row * 2) < kSplitRow ? selectTop_ : selectBottom_) & kSelectBits) << kSelectShift) : u8{0}; };
+  const bool settled = (start_ == 0 || start_ == kPage1) && shownWidth_ >= kBesideDots;
+  static constexpr int kBanner[kBanners4] = {12, 132, 252, 372};
   for (int y = 0; y < 2 * kHeight; ++y) {
     u8* out = frame + static_cast<std::size_t>(y) * kWidth;
     const int u = y / 2;
@@ -1282,47 +1399,51 @@ void Front::drawTallMenu(u8* frame, HdFrame* hd) const {
       if (x >= shownWidth_) continue;
       // which of the card's rows this is a row of, if any
       int row = -1;
-      if (x < 160) {
-        row = u <= 186 ? u : u <= 427 ? 186 : u - 240;
+      if (x < kBesideDots) {
+        row = u <= kPanelTop ? u : u <= kStretchEnd ? kPanelTop : u - kStretch;
       } else if (showing_ == Showing::Banners && settled) {
-        for (int t = 0; t < 4; ++t) {
+        for (int t = 0; t < kBanners4; ++t) {
           const int r = u - kBanner[t];
-          if (r < 0 || r >= 95 || x >= 160 + 440 || !(t < 2 ? bannerTop_ : bannerBottom_)[static_cast<std::size_t>(r)]) continue;
-          const int bx = x - 160;
-          out[x] = static_cast<u8>(kTallBanners + t * 16 + dots(static_cast<u16>(kBanners + (t * 95 + r) * 0x37 + (bx >> 3)), bx));
-          if (hd) mark(x, y, static_cast<HdPicture>(static_cast<int>(HdPicture::Table1) + t), static_cast<u32>(bx * 8), static_cast<u32>(r * 8 + (y & 1) * 4), 440, 95);
+          if (r < 0 || r >= kBannerRows || x >= kBesideDots + kBannerDots || !(t < 2 ? bannerTop_ : bannerBottom_)[static_cast<std::size_t>(r)]) continue;
+          const int bx = x - kBesideDots;
+          out[x] = static_cast<u8>(kTallBanners + t * palette::setColours + dots(static_cast<u16>(kBanners + (t * kBannerRows + r) * kBesideBytes + (bx >> 3)), bx));
+          if (hd)
+            mark(x, y, static_cast<HdPicture>(static_cast<int>(HdPicture::Table1) + t), static_cast<u32>(bx * 8), static_cast<u32>(r * 8 + (y & 1) * 4), kBannerDots,
+                 kBannerRows);
         }
         continue;
       } else if (showing_ == Showing::Scores && settled) {
-        row = u < 40 ? u : -1;  // the heading; the lists are written below
+        row = u < kHeadingRows ? u : -1;  // the heading; the lists are written below
       } else {
-        row = u >= 120 && u < 360 ? u - 120 : -1;
+        row = u >= kTallPageTop && u < kTallPageTop + kRows ? u - kTallPageTop : -1;
       }
       if (row < 0) continue;
-      const u16 at = static_cast<u16>(start_ + row * 80 + x / 8);
+      const u16 at = static_cast<u16>(start_ + row * kRowBytes + x / 8);
       // under the panel's text the picture is kept aside (cs:2b8a): it is shown, not the text
-      const bool kept = settled && x >= 16 && x < 128 && row >= 95 && row < 185;
-      const u8 colour = kept ? dots(static_cast<u16>(kPanelKept + (row - 95) * 14 + (x >> 3) - 2), x) : dots(at, x);
-      const u32 dot = kept ? (static_cast<u32>(HdPicture::Left) << 20) | (static_cast<u32>(x) << 10) | static_cast<u32>(row)
+      const bool kept = settled && x >= kPanelTextLeft * 8 && x < (kPanelTextLeft + kPanelTextBytes) * 8 && row >= kPanelTextTop &&
+                        row < kPanelTextTop + kPanelTextRows;
+      const u8 colour = kept ? dots(static_cast<u16>(kPanelKept + (row - kPanelTextTop) * kPanelTextBytes + (x >> 3) - kPanelTextLeft), x) : dots(at, x);
+      const u32 dot = kept ? (static_cast<u32>(HdPicture::Left) << dotOf::picture) | (static_cast<u32>(x) << dotOf::across) | static_cast<u32>(row)
                            : from_[std::size_t{at} * 8 + static_cast<std::size_t>(x & 7)];
-      if (showing_ == Showing::Scores && settled && x >= 160 && static_cast<HdPicture>(dot >> 20) != HdPicture::HiScores) continue;
+      if (showing_ == Showing::Scores && settled && x >= kBesideDots && static_cast<HdPicture>(dot >> dotOf::picture) != HdPicture::HiScores) continue;
       out[x] = static_cast<u8>(upper(row) | colour);
       if (!hd || dot == 0) continue;
-      const auto is = static_cast<HdPicture>(dot >> 20);
+      const auto is = static_cast<HdPicture>(dot >> dotOf::picture);
       const bool banner = is >= HdPicture::Table1 && is <= HdPicture::Table4;
       // (the panel's plain stretch is one line of its picture all the way down)
-      const bool drawnOut = x < 160 && u > 186 && u <= 427;
+      const bool drawnOut = x < kBesideDots && u > kPanelTop && u <= kStretchEnd;
       if (drawnOut && is == HdPicture::Left && stripHeight_ > 0) {
         // the strip is as fine as the panel's picture: so many of its rows to a row of the screen
-        const int perRow8 = stripWidth_ * 4 / 130, down = y - 187 * 2;
-        mark(x, y, HdPicture::LeftRepeat, ((dot >> 10) & 0x3ff) * 8, static_cast<u32>((down * perRow8) % (stripHeight_ * 8)), 130,
+        const int perRow8 = stripWidth_ * 4 / kPanelDots, down = y - (kPanelTop + 1) * 2;
+        mark(x, y, HdPicture::LeftRepeat, ((dot >> dotOf::across) & dotOf::field) * 8, static_cast<u32>((down * perRow8) % (stripHeight_ * 8)), kPanelDots,
              static_cast<u16>(stripHeight_));
         hd->map[static_cast<std::size_t>(y) * kWidth + static_cast<std::size_t>(x)].picture &= static_cast<u16>(~HdFrame::kHalfY);
         hd->rowStep[static_cast<std::size_t>(HdPicture::LeftRepeat)] = static_cast<float>(perRow8) / 8.0f;
         continue;
       }
-      mark(x, y, is, ((dot >> 10) & 0x3ff) * 8, (dot & 0x3ff) * 8 + (drawnOut ? 4 : static_cast<u32>(y & 1) * 4),
-           is == HdPicture::Left ? 130 : banner ? 440 : 400, is == HdPicture::Left ? 240 : banner ? 95 : 40, drawnOut ? HdFrame::kFlatY : u16{0});
+      mark(x, y, is, ((dot >> dotOf::across) & dotOf::field) * 8, (dot & dotOf::field) * 8 + (drawnOut ? 4 : static_cast<u32>(y & 1) * 4),
+           is == HdPicture::Left ? kPanelDots : banner ? kBannerDots : kHeadingDots, is == HdPicture::Left ? kPanelRows : banner ? kBannerRows : kHeadingRows,
+           drawnOut ? HdFrame::kFlatY : u16{0});
     }
   }
   auto put = [&](int x, int u, u8 index) {
@@ -1335,35 +1456,35 @@ void Front::drawTallMenu(u8* frame, HdFrame* hd) const {
   };
   if (settled) {
     // the panel's text, on the plain stretch below its picture (ten lines of twelve letters)
-    for (int line = 0; line < 10; ++line)
-      for (int column = 0; column < 12; ++column) {
-        const u8 letter = cs(static_cast<u16>(scrollerText_ + 12 * line + column));
-        for (int r = 0; r < 8; ++r) {
+    for (int line = 0; line < kScrollerLines; ++line)
+      for (int column = 0; column < kScrollerColumns; ++column) {
+        const u8 letter = cs(static_cast<u16>(scrollerText_ + kScrollerColumns * line + column));
+        for (int r = 0; r < kRomRows; ++r) {
           const u8 rowDots = romRow(letter, r);
           for (int b = 0; b < 8; ++b)
-            if (rowDots & (0x80 >> b)) put(16 + column * 8 + b, 257 + line * 9 + r, upper(186));
+            if (rowDots & (0x80 >> b)) put(kPanelTextLeft * 8 + column * 8 + b, kTallScrollerTop + line * kScrollerLineRows + r, upper(kPanelTop));
         }
       }
   }
   if (showing_ == Showing::Scores && settled) {
     // the four tables' best scores: the two pages of them, one under the other (cs:2cf2)
-    int y = 24;
+    int y = kTallScoresTop;
     for (const u16 first : {u16{var::scoresTables12}, u16{var::scoresTables34}}) {
       u16 page = first;
-      for (int line = 0; line < 12; ++line, y += 0x12) {
+      for (int line = 0; line < pageText::lines; ++line, y += pageText::lineHeight) {
         u16 left = 0;
-        for (u16 i = 0; i < 0x18; ++i)
+        for (u16 i = 0; i < pageText::lineBytes; ++i)
           if (self.ds(static_cast<u16>(page + i)) == 0) {
-            left = static_cast<u16>(0x18 - i - 1);
+            left = static_cast<u16>(pageText::lineBytes - i - 1);
             break;
           }
-        int x = 0xa4 + ((0x12 * left) >> 1);
-        for (u16 n = static_cast<u16>(0x18 - left); n > 0; --n, x += 0x12) {
+        int x = pageText::left + ((menuFont::advance * left) >> 1);
+        for (u16 n = static_cast<u16>(pageText::lineBytes - left); n > 0; --n, x += menuFont::advance) {
           const u16 from = self.dsw(static_cast<u16>(var::glyphs + self.ds(page++) * 2));
-          if (from == 0xffff) continue;
-          for (int r = 0; r < 14; ++r)
-            for (int b = 0; b < 24; ++b)
-              if (const u8 colour = dots(static_cast<u16>(from + r * 80 + (b >> 3)), b); colour != 0) put(x + b, y + r, colour);
+          if (from == kNone) continue;
+          for (int r = 0; r < menuFont::rows; ++r)
+            for (int b = 0; b < menuFont::dots; ++b)
+              if (const u8 colour = dots(static_cast<u16>(from + r * kRowBytes + (b >> 3)), b); colour != 0) put(x + b, y + r, colour);
         }
       }
     }

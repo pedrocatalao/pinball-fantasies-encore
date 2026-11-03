@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "core/Keys.h"
+#include "engine/Values.h"
 #include "engine/audio/MusicDriver.h"
 #include "game/Config.h"
 #include "gfx/HdLayer.h"
@@ -85,15 +86,46 @@ constexpr u16 warpTable = 0x597a;  ///< the banners' rows drawn in, a frame's af
 constexpr u16 glyphs = 0x59ed;  ///< words: where each letter is in the card's memory, by its code; ffff for none
 }  // namespace var
 
-/// In a line of best scores: where the score's twelve digits begin, after the initials.
 /// Where in video memory the screen starts for the second and the third slides.
 namespace screenStart {
 constexpr u16 logo1 = 0x4d30, logo2 = 0x99c0;
 }  // namespace screenStart
 
+/// In a line of best scores: where the score's twelve digits begin, after the initials.
 namespace scoreLine {
 constexpr u16 score = 6;
+constexpr u16 initials = 3;  ///< the letters of them
 }  // namespace scoreLine
+
+/// A page of text (cs:2cf2): twelve lines of up to 24 letters, each set in the middle of the
+/// part beside the panel; the first line this far down.
+namespace pageText {
+constexpr int lines = 12;
+constexpr int lineBytes = 0x18;
+constexpr int lineHeight = 0x12;  ///< rows from a line to the next
+constexpr int left = 0xa4;  ///< where a whole line begins, in dots
+constexpr u16 top = 0x0e;
+}  // namespace pageText
+
+/// The menu's own letters (cs:2c37): 24 dots across (three bytes) and 14 down, each 18 dots
+/// on from the one before.
+namespace menuFont {
+constexpr int rows = 14, bytes = 3, dots = 24;
+constexpr int advance = 0x12;
+}  // namespace menuFont
+
+/// The panel on the left (cs:2987): its picture for eight seconds; then painted over, three of
+/// its rows a frame, in colour 2 (pfr's clear_left), and its text written on it a letter a
+/// frame; the text for eight seconds; then the picture back from the bottom, a row a frame
+/// (pfr: LeftState's Image, ImageOut, TextIn, Text and TextOut).
+namespace scroller {
+constexpr int shown = 0x1e0;  ///< frames the picture, or the text, is shown
+constexpr int rows = 0x5a;  ///< the rows painted over, and brought back
+constexpr int rowsAFrame = 3;
+constexpr int letters = 120;  ///< ten lines of twelve
+constexpr u8 colour = 2;
+constexpr u8 plane = 2;  ///< the mask of the one plane that colour is in: the letters are drawn by taking it away
+}  // namespace scroller
 
 /// The options' words, each ending in a nought.
 namespace optionWords {
@@ -119,6 +151,7 @@ constexpr u16 table1 = 0x06;  ///< the four banners
 constexpr u16 table2 = 0x08;
 constexpr u16 table3 = 0x0a;
 constexpr u16 table4 = 0x0c;
+constexpr u16 end = 0x0e;  ///< past the last
 }  // namespace pictures
 
 /// The texts on the panel on the left, in the code segment: ten lines of twelve letters each.
@@ -134,6 +167,12 @@ constexpr u8 top = 0x10;  ///< sixteen for the top part, while the palette is sp
 constexpr u8 letterLight = 0x01;  ///< the letters' three colours
 constexpr u8 letterMid = 0x0c;
 constexpr u8 letterDark = 0x0e;
+constexpr int colours = 256;
+constexpr int setColours = 16;  ///< the colours of one of the pictures in sixteen
+constexpr int setBytes = 0x30;  ///< and their bytes, three to a colour, 0 to 0x3f each
+constexpr int lowBytes = 0xc0;  ///< the first 64 colours' bytes, all the menu uses
+constexpr int allBytes = 0x300;
+constexpr int dacMax = 0x3f;
 }  // namespace palette
 
 }  // namespace intro
@@ -184,7 +223,7 @@ class Front {
   bool portableErrorShown() const { return portableErrorShown_; }
   MusicDriver& music() { return music_; }
   void sound(float* out, int frames) { music_.render(out, frames); }
-  void noSound() { music_.pass(1.0 / 60); }
+  void noSound() { music_.pass(1.0 / MusicDriver::kFrameRate); }
 
  private:
   // --- a routine that can wait for the next frame, and call others that can
@@ -237,16 +276,20 @@ class Front {
   NextFrame nextFrame() { return NextFrame{this}; }
 
   // --- the program's memory
-  u8& ds(u16 at) { return image_[intro::seg::data * 16 + at]; }
+  static constexpr int kParagraph = 16;  ///< bytes: what a segment's number counts in
+  u8& ds(u16 at) { return image_[intro::seg::data * kParagraph + at]; }
   u16 dsw(u16 at) { return static_cast<u16>(ds(at) | (ds(static_cast<u16>(at + 1)) << 8)); }
   void setw(u16 at, u16 v) {
     ds(at) = static_cast<u8>(v);
     ds(static_cast<u16>(at + 1)) = static_cast<u8>(v >> 8);
   }
-  u8& farByte(u16 segment, u32 offset) { return image_[(std::size_t{segment} * 16 + offset) % image_.size()]; }
-  u8 cs(u16 at) const { return image_[std::size_t{intro::seg::code} * 16 + at]; }
+  u8& farByte(u16 segment, u32 offset) { return image_[(std::size_t{segment} * kParagraph + offset) % image_.size()]; }
+  u8 cs(u16 at) const { return image_[std::size_t{intro::seg::code} * kParagraph + at]; }
 
   // --- the video card
+  static constexpr int kPlanes = 4;       ///< its memory in four planes,
+  static constexpr u8 kAllPlanes = 0x0f;  ///< a bit for each where they are chosen
+  static constexpr u8 kAllDots = 0xff;    ///< all eight dots of a byte
   enum class Mode { Chunky320, Planar480, Planar240 };
   u8 peek(u16 at);                 ///< reads a byte, and keeps all four planes' for a copy
   void poke(u16 at, u8 value);     ///< writes as the card is set to write
@@ -284,7 +327,7 @@ class Front {
   void text(u16 y, const u8* page);
   void string(u16 y, u16 x, u16 text);                       ///< cs:43cf
   void heading(u16 from, u16 to);                            ///< cs:13ea
-  void forget(u16 at, u8 dots = 0xff);                       ///< those dots are no longer a picture's
+  void forget(u16 at, u8 dots = kAllDots);                   ///< those dots are no longer a picture's
   void threeColours(int times, int of);                      ///< the letters' three colours, dimmed
   void rubOutText(bool both);                                ///< cs:2684, cs:26b1
   void optionText(int row, u16& text);                       ///< cs:41b2 and its like
@@ -299,18 +342,18 @@ class Front {
   MusicDriver music_;
   Options options_, saved_;
   int returningFrom_;
-  std::array<std::vector<u8>, 4> planes_;
-  std::array<u8, 4> latch_{};
-  u8 planeMask_ = 0x0f, readPlane_ = 0, setReset_ = 0, enableSetReset_ = 0;
+  std::array<std::vector<u8>, kPlanes> planes_;
+  std::array<u8, kPlanes> latch_{};
+  u8 planeMask_ = kAllPlanes, readPlane_ = 0, setReset_ = 0, enableSetReset_ = 0;
   int writeMode_ = 0;
   Mode mode_ = Mode::Chunky320;
   u16 start_ = 0;
-  u16 shownWidth_ = 640;           ///< dots of each row the card shows; the menu opens sideways
-  std::array<u8, 768> dac_{};
+  u16 shownWidth_ = kWidth;        ///< dots of each row the card shows; the menu opens sideways
+  std::array<u8, intro::palette::allBytes> dac_{};
   u8 colourSelect_ = 0;
   bool selectBits_ = false;        ///< the upper colour bits come from the colour select
   u8 selectTop_ = 0, selectBottom_ = 0;
-  std::array<u8, 768> fadeBuffer_{};  ///< cs:20df
+  std::array<u8, intro::palette::allBytes> fadeBuffer_{};  ///< cs:20df
   /// For the pictures drawn again at high resolution: which picture each dot of the card's
   /// memory is a dot of, and which dot (picture << 20 | across << 10 | down); 0 for none.
   /// Copies within the memory take it along, and whatever is drawn over a dot takes it away.
@@ -333,7 +376,7 @@ class Front {
   bool slideIn_ = false;           ///< cs:2c32
   u16 slideAt_ = 0;                ///< cs:2c33
   bool scrollerOn_ = false;        ///< cs:2980
-  i16 scrollerCount_ = 0x1e0;      ///< cs:297e
+  i16 scrollerCount_ = intro::scroller::shown;  ///< cs:297e
   u16 scrollerText_ = intro::code::leftTextMenu, scrollerNow_ = intro::code::leftTextMenu;  ///< cs:2981, cs:2983
   bool scrollerShowsText_ = false; ///< cs:2985: 29df when true, 29fa when not
   u16 drawAt_ = 0, fontAt_ = 0;    ///< cs:2cee, cs:2cf0
@@ -348,9 +391,10 @@ class Front {
   std::array<std::vector<u8>, 2> optionsPages_;
   int optionsShown_ = 0;           ///< which of them
   static constexpr int kFirstOptions = 6;  ///< the options on the first page; the rest on the other
+  static constexpr int kFirstWord = 0x1e;  ///< where the first option's word is in a page of them
   u8* optionWord(int row) {
     const int page = row < kFirstOptions ? 0 : 1, line = row - (page ? kFirstOptions : 0);
-    return &optionsPages_[static_cast<std::size_t>(page)][static_cast<std::size_t>(0x1e + line * 0x18)];
+    return &optionsPages_[static_cast<std::size_t>(page)][static_cast<std::size_t>(kFirstWord + line * intro::pageText::lineBytes)];
   }
   void writeOptionWord(int row);   ///< cs:404a: an option's word into its page's text
   PortableLock portableLock_ = PortableLock::None;
