@@ -33,6 +33,12 @@ it). That has three consequences:
 - **One engine, four tables.** The four programs hold the same engine at different addresses.
   Names (`re/symbols`) are given to Party Land's addresses as they are understood, and
   `re/align.py` carries them to the other three.
+- **Names, pfr's where it has them.** The engine's addresses are named in
+  `re/symbols/table1.txt` (and so in `Names.inc`: `at::flippersLive`), each table's own in a
+  namespace in its header (`stones::var::towerOpen`, `stones::awards::towerJackpot`). The names
+  are those of [pfr](https://github.com/wanda-phi/pfr), a rewrite of the game in Rust, wherever
+  it has the same thing. A name is only a number written another way, so a rename must leave
+  the machine code as it was: `tools/probes/pfr-names` is how that is checked.
 
 ```bash
 build/encore-oracle-table <the game's folder> <table 1-4> 100000 --all --start --wild --rough --flip <seed>
