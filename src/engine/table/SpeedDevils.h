@@ -6,6 +6,7 @@
 // still says where it is in the program ("cs:2281").
 #include <initializer_list>
 
+#include "engine/Values.h"
 #include "engine/table/Flow.h"
 
 namespace encore {
@@ -366,9 +367,106 @@ constexpr u16 matchPace = 0x07e2;  ///< frames each digit stands
 constexpr u16 matchLength = 0x0866;  ///< (a word in an instruction) the digits the match runs through
 }  // namespace cvar
 
-/// The display's characters: the digits are 0x37 on.
-constexpr u8 kDigit0 = 0x37;
-constexpr u8 kBlank = 0x2a;
+/// This table's place in the engine's maps (Flow's second argument).
+constexpr int kTableIndex = 1;
+/// The players a game can have.
+constexpr u16 kMaxPlayers = 8;
+/// What var::scoreDrawn's digits are set to, so that each is drawn again.
+constexpr u8 kScoreUndrawn = 0x12;
+/// Added to glyph::digit0, a blank: a nought left out at the front of a number (threeDigits).
+constexpr u16 kBlankLessDigit0 = static_cast<u16>(glyph::blank - glyph::digit0);
+
+/// Where the view looks (var::lookAtSoft).
+namespace lookAt {
+constexpr u16 drainedHigh = 0x103, drainedLow = 0x171;  ///< as the ball drains, at the faster screen mode and the other
+}  // namespace lookAt
+
+/// Places in the song (var::musicNext: where the music goes on after a tune). Of the tunes'
+/// records only the plunger's has one of these places; the others are named after what the
+/// rules play before them.
+namespace songAt {
+constexpr u8 plunger = 0;  ///< tunes::gameStart's place, which is also the plunger's
+constexpr u8 afterMain = 1;  ///< after the main tune, as the ball comes back down the lane
+constexpr u8 afterMode = 3;  ///< after a mode's end (pfr: set_music(3))
+constexpr u8 afterAttract = 9;
+constexpr u8 afterTilt = 0x3e;
+}  // namespace songAt
+
+/// Frames: what the timers count to, and the timeouts (pfr's names; its TaskKind delays).
+namespace times {
+constexpr u16 drainSfx = 5;  ///< pfr: DrainSfx
+constexpr u16 unblinkTarget = 0x0a;  ///< a BUR or NIN target's light (pfr: SpeedUnblinkBur, SpeedUnblinkNin)
+constexpr u16 unblinkRow = 0x28;  ///< all three of a row (pfr: SpeedUnblinkBurAll, SpeedUnblinkNinAll)
+constexpr u16 unblinkGear = 0x0a;  ///< a GEAR light (pfr: SpeedUnblinkGear)
+constexpr u16 unblinkGearAll = 0x2d;  ///< pfr: SpeedUnblinkGearAll
+constexpr u16 unblinkCar = 0x78;  ///< pfr: SpeedUnblinkCar
+constexpr u16 resetSuperJackpot = 0x4b0;  ///< pfr: SpeedResetSuperJackpot
+constexpr u16 pitStop = 0x14;  ///< the pit holds the ball (pfr: SpeedPitStop(20)),
+constexpr u16 pitStopMode = 0x50;  ///< while a mode's clock runs (amended; pfr: SpeedPitStop(80)),
+constexpr u16 pitStopLong = 0x96;  ///< for the super jackpot at the goal (pfr: SpeedPitStop(150)),
+constexpr u16 pitEject = 0x3c;  ///< then a second more, unless a mode's clock runs
+constexpr u16 pitDone = 0x3c;
+constexpr u16 pit = 0x14;  ///< pfr: timeout_pit = 20
+constexpr u16 pitAll = 0x28;  ///< pfr: timeout_pit_all = 40
+constexpr u16 jackpot = 0x4b0;  ///< pfr: timeout_jackpot = 1200
+constexpr u16 gearBlink = 0x1e;  ///< pfr: timeout_gear_blink = 30
+constexpr u16 miles = 0x186;  ///< pfr: timeout_miles_left and _right = 390
+constexpr u16 matchPaceHigh = 0x0d, matchPaceLow = 0x0b;  ///< each digit of the match, at the faster screen mode and the other
+}  // namespace times
+
+/// Half periods of blink(), and the period of the lights that blink in step.
+namespace blinks {
+constexpr u8 fast = 1;
+constexpr u8 flash = 2;
+constexpr u8 multiBonus = 0x0a;  ///< the off road ramp's multiplier, lit
+constexpr u8 lit = 0x0f;  ///< the lights lit to be taken, in step with var::lightPhasePlace (pfr: 15)
+constexpr u8 phases = 0x1e;  ///< var::lightPhasePlace counts 0 to 0x1d (pfr: light_phase_place == 30)
+}  // namespace blinks
+
+/// The ball's speed as the pit lets it go (pfr: (-2100, 800)).
+namespace speeds {
+constexpr u16 pitEjectX = 0xf7cc, pitEjectY = 0x320;
+}  // namespace speeds
+
+/// The miles (var::miles) at which things happen.
+namespace milesAt {
+constexpr u16 firstOffroad = 0x0a;  ///< the first off road
+constexpr u16 extraBall = 0x14;  ///< the pit loop's extra ball is lit
+constexpr u16 jumpAtStart = 0x1e;  ///< var::jumpAt and var::offroadAt as a ball begins,
+constexpr u16 offroadAtStart = 0x28;
+constexpr u16 step = 0x14;  ///< and how far on each moves when it is reached
+constexpr u16 countdown = 0x0a;  ///< the display counts the miles to the next of them down from here
+}  // namespace milesAt
+
+/// Counts and sizes.
+namespace counts {
+constexpr u16 matchText = 0x10;  ///< the match texts' bytes
+constexpr u16 row = 3;  ///< the lights of the BUR, NIN and PIT rows
+constexpr u16 gearLights = 4;
+constexpr u16 carParts = 5;
+constexpr u16 places = 0x0a;  ///< the places in the race
+constexpr u16 placesPerGear = 2;  ///< lit to be taken, each time the four GEAR lights are made
+constexpr u16 speedLights = 0x0c;
+constexpr u16 topSpeed = 0x0b;  ///< the last of the speeds (awards::miles is for 0 to 11)
+constexpr u16 topGear = 5;  ///< the six gears, 0 to 5
+constexpr u16 multipliers = 8;  ///< the bonus multipliers 2 to 9
+constexpr u16 lastMultiplier = 7;
+}  // namespace counts
+
+/// The task's states while a game starts (code::gameStartingTask): any but 0 says it is not
+/// done; these are the original's.
+namespace tasks {
+constexpr u16 gameStartingFirst = 0x2c;  ///< as the step sets it
+constexpr u16 gameStartingStill = 0x22;  ///< while players may still join
+}  // namespace tasks
+
+/// The display's script steps, by their bytes (Engine::nextStep), and where a step's words are.
+namespace steps {
+constexpr u16 bare = 2;  ///< a step that is only its routine
+constexpr u16 withWord = 4;
+constexpr u16 withTwoWords = 6;
+constexpr u16 arg1 = 2, arg2 = 4;
+}  // namespace steps
 
 }  // namespace speed
 
@@ -404,11 +502,11 @@ class SpeedDevils : public Flow {
   void restorePlayer() override;          // cs:0c84
   void clearBall() override;              // cs:004c
   bool extraBallOwed() override { return b(speed::var::extraBalls) != 0; }
-  void matchPace() override { nativeCW(speed::cvar::matchFrames) = nativeCW(speed::cvar::matchPace) = high() ? 0x0d : 0x0b; }
+  void matchPace() override { nativeCW(speed::cvar::matchFrames) = nativeCW(speed::cvar::matchPace) = high() ? speed::times::matchPaceHigh : speed::times::matchPaceLow; }
   u16 matchLength() override { return kw(speed::cvar::matchLength, 1); }
   void gameOverLights() override {}
   u16 matchRepeated(u16 digit) override { return digit; }
-  void matchWon() override { b(speed::var::matchWon) = 0xff; }
+  void matchWon() override { b(speed::var::matchWon) = kSet; }
   bool restoresAtTurn() override { return false; }
   void ballShown() override { b(speed::text::ballA) = b(speed::text::ballB); }
   void playerShown() override { b(speed::text::playerA) = b(speed::text::playerB); }
@@ -440,7 +538,7 @@ class SpeedDevils : public Flow {
   void modeCountRamp(); // cs:24f8
   void everyFrame();    // cs:241a
   void threeDigits(u16 value, u16 at, bool blankHundreds);
-  u16 pitWait_ = 0x14;  ///< how long the pit keeps the ball this time
+  u16 pitWait_ = speed::times::pitStop;  ///< how long the pit keeps the ball this time
 };
 
 }  // namespace encore

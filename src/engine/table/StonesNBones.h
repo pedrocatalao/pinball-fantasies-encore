@@ -6,6 +6,7 @@
 // shares; each routine still says where it is in the program ("cs:1c68").
 #include <initializer_list>
 
+#include "engine/Values.h"
 #include "engine/table/Flow.h"
 
 namespace encore {
@@ -124,6 +125,8 @@ constexpr u16 modeRamp = 0x1270;  ///< and the one that counts ramps
 constexpr u16 modeHitScore = 0x1d3b;  ///< 12 digits
 constexpr u16 modeRampScore = 0x1e30;  ///< 12 digits
 constexpr u16 matchNumber = 0x23d2;  ///< word: the match's digit
+constexpr u16 matchWaitsLow = 0x0000;  ///< the match's list of waits (cvar::matchWaits),
+constexpr u16 matchWaitsHigh = 0x0048;  ///< and at the faster screen mode
 
 // --- the engine's, as this table has them (Party Land's names, where it has them)
 constexpr u16 musicNext = 0x2795;
@@ -331,6 +334,9 @@ constexpr u16 raised = 0, dropped = 2;  ///< the two shapes, from where the mask
 constexpr u16 at = 4;  ///< where in the mask it goes
 constexpr u16 width = 6, rows = 8;
 }  // namespace gateRec
+/// A shape keeps three rows for each row of the mask, and the middle one goes there (pfr:
+/// skip3): it is read from one width on, three widths a row.
+constexpr u16 kShapeRowsPerMaskRow = 3;
 namespace gates {
 constexpr u16 playfield = 0x345b, ramps = 0x3f9b;
 constexpr Gate rampTower{playfield, 0x1233};  ///< raised as the ball reaches the KEY lanes, dropped on the ramp to the tower
@@ -510,9 +516,139 @@ constexpr u16 scrollTo = 0x369b;
 /// The segment of the tall picture that rolls down the display (cs:36c0).
 constexpr u16 tallPicture = 0x49ff;
 
-/// The display's characters: the digits are 0x37 on.
-constexpr u8 kDigit0 = 0x37;
-constexpr u8 kBlank = 0x2a;
+/// The tall picture's layout (cs:36c0): 0x28 bytes a row, each byte two dots of each of the
+/// display's two planes, every other bit; sixteen rows drawn at a time.
+namespace tall {
+constexpr u16 rowBytes = 0x28;
+constexpr int rowsDrawn = 0x10;
+constexpr u8 plane0Left = 0x80, plane0Right = 0x08;  ///< the bits of a byte's two dots, plane 0
+constexpr u8 plane1Left = 0x20, plane1Right = 0x02;  ///< and plane 1
+constexpr u16 firstRow = 0x98;  ///< cvar::scrollRow starts here, and counts down to the row asked for
+constexpr u16 drawnAt = 0xa8;  ///< where on the display it is drawn: the start of its second row
+constexpr u16 rowRest = 0x58;  ///< the rest of a row of the display (0xa8) past the picture's 0x50 dots
+}  // namespace tall
+
+/// The table's place in the engine's maps (Maps.inc), as Flow takes it.
+constexpr int kTableIndex = 3;
+/// The players a game can have.
+constexpr u16 kMaxPlayers = 8;
+/// Two blanks, a word.
+constexpr u16 kTwoBlanks = 0x2a2a;
+/// A word whose second character is a space (kSpaceAfter | c).
+constexpr u16 kSpaceAfter = 0x2000;
+/// In a 12-digit number, the place of its tens.
+constexpr u16 kScoreTens = 0x0a;
+/// What var::scoreDrawn's digits are set to (no digit has it), so that each is drawn again.
+constexpr u8 kScoreUndrawn = 0x12;
+
+/// Frames: the timers' (pfr's TaskKind, src/table/tasks.rs), and the timeouts.
+namespace times {
+constexpr u16 drainSfx = 5;
+constexpr u16 unblinkTarget = 0x0a;  ///< pfr: StonesUnblinkBone and StonesUnblinkStone, 10 each
+constexpr u16 stonesBonesBlink = 2;
+constexpr u16 unblinkStonesBones = 0x46;  ///< pfr: 70
+constexpr u16 unblinkKey = 0x0a;  ///< pfr: 10
+constexpr u16 unblinkKeyAll = 0x46;  ///< pfr: 70
+constexpr u16 resetSuperJackpot = 0x30c;  ///< pfr: 780
+constexpr u16 towerEject = 0x0a;  ///< pfr: 10
+constexpr u16 wellEject = 0x0a;  ///< pfr: 10
+constexpr u16 vaultEject = 0x0a;  ///< pfr: 10
+constexpr u16 unblinkGhosts = 0xf0;  ///< pfr: 240
+constexpr u16 raiseKickback = 0x1e;  ///< pfr: 30
+constexpr u16 unblinkRip = 0x14;  ///< pfr: 20
+constexpr u16 unblinkRipAll = 0x46;  ///< pfr: 70
+constexpr u16 screamExtra = 2;  ///< pfr: 2
+constexpr u16 topLoop = 0x12c;  ///< pfr: timeout_top_loop = 300
+constexpr u16 leftRamp = 0x1c2;  ///< pfr: timeout_left_ramp = 450
+constexpr u16 multiBonus = 0x23a;  ///< pfr: timeout_multi_bonus = 570
+constexpr u16 loopComboHigh = 0x3a8;  ///< pfr: timeout_loop_combo = 936 at the faster screen mode,
+constexpr u16 loopCombo = 0x30c;  ///< and 780 at the other
+constexpr u16 towerHunt = 0x960;  ///< pfr: timeout_tower_hunt = 2400
+constexpr u16 lock = 0x834;  ///< pfr: timeout_lock = 2100
+constexpr u16 hurry = 0x5a;  ///< what the left ramp lit blinks faster for its last 90
+constexpr u16 matchFlashPeriod = 3;  ///< the table flashes for a match won
+}  // namespace times
+
+/// The half periods blink() takes, in frames; and the counts the tower's and the left ramp's
+/// lights' phases go round in (pfr: light_phase_tower, light_phase_right).
+namespace blinks {
+constexpr u8 hurry = 1;  ///< the skill shot's light, and a light about to go out
+constexpr u8 flash = 2;  ///< a target or lane just made
+constexpr u8 lit = 0x12;  ///< a prize lit, waiting (pfr: 18)
+constexpr u8 leftRamp = 0x10;  ///< what the left ramp lights (pfr: 16)
+constexpr u8 tower = 0x14;  ///< the way into the tower open (pfr: 20)
+constexpr u8 ghost = 0x20;  ///< the ghost waiting in the vault (pfr: 32)
+constexpr u8 phasesRight = 0x20;  ///< pfr: 32
+constexpr u8 phasesTower = 0x24;  ///< pfr: 36
+}  // namespace blinks
+
+/// The ball's speeds, as the table gives them (pfr's teleport speeds in the comments).
+namespace speeds {
+constexpr u16 towerEjectY = 0xf2fb;  ///< pfr: (0, -3333)
+constexpr u16 wellEjectX = 0xfd66, wellEjectY = 0x682;  ///< pfr: (-666, 1666)
+constexpr u16 vaultEjectY = 0xf4c0;  ///< pfr: (0, -2880)
+constexpr u16 lockServeX = 0x0a;  ///< a ball locked, the next one in the plunger lane (pfr: (10, 0))
+}  // namespace speeds
+
+/// Places in the song (var::musicNext): the tunes' records' (tunes::, pfr's JingleBind), and
+/// those no record has.
+namespace songAt {
+constexpr u8 plunger = 0;  ///< tunes::plunger's
+constexpr u8 main = 1;  ///< tunes::main's
+constexpr u8 afterMode = 3;  ///< where the music goes as a mode ends
+constexpr u8 afterAttract = 9;  ///< and after the tune while nobody plays
+constexpr u8 towerHunt = 0x2e;  ///< the tower hunt's, a place on for each of its prizes,
+constexpr u8 towerHuntLast = 0x32;  ///< up to this one
+constexpr u8 silence = 0x34;  ///< pfr: JingleBind::Silence (ds:08ec)
+}  // namespace songAt
+
+/// The volumes sfx() plays at (pfr's default is 0x40).
+namespace volumes {
+constexpr u8 stone = 0x28;
+}  // namespace volumes
+
+/// The display's fonts, as setFont takes them.
+namespace fonts {
+constexpr int dots5 = 3;  ///< 5 dots high
+}  // namespace fonts
+
+/// Where on the display things are drawn (drawText's place, var::drawAt).
+namespace dmAt {
+constexpr u16 matchPlayers = 0xa8;
+constexpr u16 matchDigits = 0x540;  ///< the match's digits, eight dots apart (+ digit << 3)
+}  // namespace dmAt
+
+/// Where var::lookAtSoft looks as the ball drains, at the faster screen mode and the other.
+namespace lookAt {
+constexpr u16 drainedHigh = 0x103, drainedLow = 0x171;
+}  // namespace lookAt
+
+/// The steps of the display's scripts: their sizes (Engine::nextStep), and where their words are.
+namespace steps {
+constexpr u16 bare = 2, withWord = 4, withTwoWords = 6;
+constexpr u16 arg1 = 2, arg2 = 4;
+}  // namespace steps
+
+/// What a task leaves in its state while it is not done (any but 0; these are the original's).
+namespace tasks {
+constexpr u16 gameStartingFirst = 0x2c;
+constexpr u16 gameStartingStill = 0x22;
+}  // namespace tasks
+
+/// Counts and sizes.
+namespace counts {
+constexpr u16 rowLights = 3;  ///< a row of lanes: KEY, RIP
+constexpr u8 keyLanes = 3;  ///< (a u8, as the % it divides: a u16 or an int here makes GCC divide another way)
+constexpr u16 stoneTargets = 5;
+constexpr u16 targetsBlinking = 11;  ///< var::boneBlinking's four, two unused, and stoneBlinking's five
+constexpr u16 ghosts = 8;
+constexpr u16 towerHuntSteps = 3;
+constexpr u16 screamsStep = 0x0a;  ///< from one prize to the next; the first ten light the extra ball
+constexpr u16 matchText = 0x10;  ///< text::matchPlayers' and matchWinners' bytes, two a player
+constexpr u16 matchDigits = 10;
+constexpr u16 matchSteps = 0x24;  ///< the digits the match counts down through
+constexpr u16 matchFlashes = 3;
+}  // namespace counts
 
 }  // namespace stones
 
@@ -529,20 +665,20 @@ class StonesNBones : public Flow {
     w(stones::var::task) = stones::code::waitTask;
   }
   void copy12(u16 to, u16 from) {
-    for (u16 i = 0; i < 12; ++i) b(static_cast<u16>(to + i)) = b(static_cast<u16>(from + i));
+    for (u16 i = 0; i < kScoreDigits; ++i) b(static_cast<u16>(to + i)) = b(static_cast<u16>(from + i));
   }
   void zero12(u16 at) {
-    for (u16 i = 0; i < 12; ++i) b(static_cast<u16>(at + i)) = 0;
+    for (u16 i = 0; i < kScoreDigits; ++i) b(static_cast<u16>(at + i)) = 0;
   }
   u8& lightState(u8 light) { return b(static_cast<u16>(stones::var::lightStates + light)); }
-  bool isLit(u8 light) { return lightState(light) == 0xff; }
+  bool isLit(u8 light) { return lightState(light) == kSet; }
   /// Does `what` to each light, in turn.
   void all(std::initializer_list<u8> which, void (StonesNBones::*what)(u8));
   /// The same to the nine targets' lights, the four BONE then the five STONE.
   void stonesAndBones(void (StonesNBones::*what)(u8));
   void stop(u8 light) { stopBlink(light); }
   void clear(u8 light) { clearLight(light); }
-  void flash(u8 light) { blink(light, 0, 2); }
+  void flash(u8 light) { blink(light, 0, stones::blinks::flash); }
   /// A light put out for good: no longer blinking, and not remembered as lit.
   void out(u8 light) {
     stopBlink(light);
@@ -575,7 +711,7 @@ class StonesNBones : public Flow {
   void restorePlayer() override;          // cs:0d01
   void clearBall() override;              // cs:0056
   bool extraBallOwed() override { return b(stones::var::extraBalls) != 0; }
-  void matchWon() override { b(stones::var::matchWon) = 0xff; }
+  void matchWon() override { b(stones::var::matchWon) = kSet; }
   void gameOverLights() override {}
   bool clearsScoreAtEnd() override { return false; }
   bool restoresAtTurn() override { return false; }

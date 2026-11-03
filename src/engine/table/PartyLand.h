@@ -5,6 +5,7 @@
 // are those of pfr's rewrite of the game (github.com/wanda-phi/pfr: src/table/party.rs and the
 // binds in its assets) where it has the same thing, and the engine's (Names.inc) for what the
 // engine shares; each routine still says where it is in the program ("cs:1126").
+#include "engine/Values.h"
 #include "engine/table/Flow.h"
 
 namespace encore {
@@ -523,9 +524,138 @@ constexpr u16 duckUnblink2 = 0x14f5;
 constexpr u16 demonPrizes = 0x2298;  ///< the demon's lit prizes collected
 }  // namespace cvar
 
-/// The display's characters: the digits are 0x37 on.
-constexpr u8 kDigit0 = 0x37;
-constexpr u8 kBlank = 0x2a;
+/// The table's place in the engine's maps (Flow's second argument).
+constexpr int kTableIndex = 0;
+/// The players a game can have.
+constexpr u16 kMaxPlayers = 8;
+/// Two lights' flags read as one word, both set.
+constexpr u16 kSetPair = 0xffff;
+
+/// Places in the song (var::musicNext), by the tune whose record has them (pfr's JingleBind).
+namespace songAt {
+constexpr u8 plunger = 0x00;
+constexpr u8 main = 0x01;
+constexpr u8 afterAttract = 0x09;  ///< the place after the attract tune's (0x08)
+constexpr u8 megaLaugh = 0x19;  ///< pfr: set_music(0x19), as MEGA LAUGH starts
+constexpr u8 happyHour = 0x2b;  ///< pfr: set_music(0x2b), as HAPPY HOUR starts
+constexpr u8 silence = 0x3e;  ///< pfr: JingleBind::Silence
+}  // namespace songAt
+
+/// A tune's priority, held while it plays (var::musicPriority; 0 is none).
+namespace priorities {
+constexpr u8 arcade = 1;  ///< the arcade's jingle
+}  // namespace priorities
+
+/// Where the view looks (var::lookAtSoft) as the ball drains, at the faster screen mode and
+/// the other.
+namespace lookAt {
+constexpr u16 drainedHigh = 0x103, drainedLow = 0x171;
+}  // namespace lookAt
+
+/// Frames: what the timers count to (pfr's TaskKind timeouts), the timeouts and the waits.
+namespace times {
+constexpr u16 partyOn = 0x1e;  ///< pfr: PartyOn 30
+constexpr u16 drainSfx = 5;  ///< pfr: DrainSfx 5
+constexpr u16 dropZoneWait = 0x1e;  ///< pfr: PartyDropZoneWait 30
+constexpr u16 dropZoneRelease = 0x1b;  ///< pfr: PartyDropZoneRelease 27
+constexpr u16 resetArcadeButton = 0x14;  ///< pfr: PartyResetArcadeButton 20
+constexpr u16 duckUnblink = 0x0d;  ///< a duck's light blinks this long as it goes down (pfr: PartyDuckUnblink 13)
+constexpr u16 duckDrop = 0x14;  ///< and the duck is out of the ball's way after this long (pfr: PartyDuckDrop 20)
+constexpr u16 duckAllUnblink = 0x47;  ///< pfr: PartyDuckAllUnblink 71
+constexpr u16 orbitRightUnblink = 0x78;  ///< pfr: PartyOrbitRightUnblink 120
+constexpr u16 madUnblink = 0x0e;  ///< pfr: PartyMadUnblink 14
+constexpr u16 madAllUnblink = 0x78;  ///< pfr: PartyMadAllUnblink 120
+constexpr u16 cycloneX5Blink = 0x1e0;  ///< pfr: PartyCycloneX5Blink 480
+constexpr u16 cycloneX5End = 0x78;  ///< pfr: PartyCycloneX5End 120
+constexpr u16 tunnelFreeze = 2;  ///< pfr: PartyTunnelFreeze 2
+constexpr u16 tunnelDelay = 0x82;  ///< var::tunnelDelay (pfr: PartyDropZoneStart(130))
+constexpr u16 tunnel = 0x5a0;  ///< var::timeoutTunnel: the 3M or the 5M lit (pfr: timeout_tunnel = 1440),
+constexpr u16 tunnelHalf = 0x2d0;  ///< the 3M lit (720); and at this much left the 5M goes back to the 3M
+constexpr u16 partyT = 0x258;  ///< var::timeoutPartyT (pfr: timeout_party_t = 600)
+constexpr u16 partyPr = 0x12c;  ///< var::timeoutPartyPr (pfr: timeout_party_pr = 300)
+constexpr u16 skillShot = 0x12c;  ///< var::timeoutSkillShot, from the ball leaving the plunger lane
+constexpr u16 springLoop = 0x78;  ///< var::timeoutSpringLoop, the same
+constexpr u16 arcadeEntry = 0x15;  ///< added to var::frames as the ball goes into the arcade, which moves its prize along
+constexpr u16 arcadeJingle = 0x19;  ///< var::jingleTimeout, as the arcade's jingle starts
+constexpr u16 arcadeNotShown = 0x0a;  ///< var::dropZoneDelay: the arcade's prize showed nothing (pfr: 10)
+constexpr u16 arcadeSideExtraBall = 0xa0;  ///< the arcade's prizes: the drop zone's delay (pfr: 160),
+constexpr u16 arcadeNoScore = 0x2d;  ///< (pfr: 45)
+constexpr u16 arcadeCrazyShow = 0x8c, arcadeCrazyHold = 0xb4;  ///< or the frames it is shown at least and the ball held at most (pfr: PartyArcadeDropZoneStart(140, 180))
+constexpr u16 arcade1MShow = 0x78, arcade1MHold = 0x96;  ///< (120, 150)
+constexpr u16 arcade5MShow = 0x6e, arcade5MHold = 0x8c;  ///< (110, 140)
+constexpr u16 arcade500kShow = 0x2d, arcade500kHold = 0x46;  ///< (45, 70)
+constexpr u16 arcadeSoftReset = 0xffff;  ///< what those two are left at as the ball goes on
+constexpr u16 arcadeHardReset = 0x0a;
+constexpr u16 doubleBonusBlink = 0x1e0;  ///< pfr: PartyDoubleBonusBlink 480
+constexpr u16 doubleBonusEnd = 0x78;  ///< pfr: PartyDoubleBonusEnd 120
+constexpr u16 snacksWait = 0x28;  ///< the ball held at the top of the left ramp (pfr: PartySnacksRelease 40 in a mode),
+constexpr u16 snacksRelease = 0x5a;  ///< and then this much more if no mode runs (130 in all)
+constexpr u16 snacksFinish = 0x3c;  ///< pfr: PartySnacksFinish 60
+constexpr u16 demonInMode = 0x0f;  ///< var::demonTimeout: the demon holds the ball while a mode runs (pfr: 15),
+constexpr u16 demon5M = 0xa0;  ///< after the 5 million (160),
+constexpr u16 demonExtraBall = 0x140;  ///< after the extra ball (320),
+constexpr u16 demonJackpot = 0x19a;  ///< after the jackpot (410),
+constexpr u16 demonNothing = 0x55;  ///< and with nothing lit (85)
+constexpr u16 demonRelease = 0x1b;  ///< pfr: PartyDemonRelease 27
+constexpr u16 sideExtraBallFinish = 0x258;  ///< pfr: PartySideExtraBallFinish 600
+constexpr u16 skyrideUnblink = 0x78;  ///< pfr: PartySkyrideUnblink 120
+constexpr u16 pukeUnblink = 0x0d;  ///< pfr: PartyPukeUnblink 13
+constexpr u16 pukeUnblinkAll = 0x64;  ///< pfr: PartyPukeUnblinkAll 100
+constexpr u16 modeStart = 0x190;  ///< a mode that waited starts (pfr: PartyHappyHour, PartyMegaLaugh 400)
+}  // namespace times
+
+/// A display task's count (var::taskState, si): any value but 0 says "not done".
+namespace tasks {
+constexpr u16 waiting = 0xff;  ///< what it is left at while it waits for something other than time
+constexpr u16 gameStartingFirst = 0x2c;  ///< the wait as the game starts,
+constexpr u16 gameStartingStill = 0x22;  ///< begun again each frame while players may join
+}  // namespace tasks
+
+/// The display's script, a step at a time: a step is its routine's word, then its arguments'
+/// (Engine::nextStep's size; the places of the arguments, from bx).
+namespace steps {
+constexpr u16 bare = 2;  ///< a step that is only its routine
+constexpr u16 withWord = 4;
+constexpr u16 withTwoWords = 6;
+constexpr u16 arg1 = 2, arg2 = 4;
+}  // namespace steps
+
+/// The half periods passed to blink(), in frames, and the periods the lights' phases go round
+/// in (var::lightPhaseSnack and the like), twice theirs.
+namespace blinks {
+constexpr u8 flash = 2;  ///< a light just made, or all of a row
+constexpr u8 duck = 3;  ///< a duck's light as it goes down
+constexpr u8 cycloneX5 = 6;
+constexpr u8 dropZone = 7;  ///< the drop zone's two, and the demon's head
+constexpr u8 tunnel = 8;  ///< the tunnel's prizes and the two modes
+constexpr u8 snack = 8;  ///< by var::lightPhaseSnack
+constexpr u8 orbit = 9;  ///< the right orbit's prizes
+constexpr u8 arcade = 0x0c;
+constexpr u8 orbitBonus = 0x0c;  ///< the right orbit's bonus prizes, by var::lightPhaseOrbit
+constexpr u8 demon = 0x0e;  ///< the demon's prizes, by var::lightPhaseDemon
+constexpr u8 puke = 2;  ///< the four top lanes, all lit, by var::lightPhasePuke
+constexpr u8 snackPeriod = 0x10, orbitPeriod = 0x18, pukePeriod = 0x04, demonPeriod = 0x1c;
+}  // namespace blinks
+
+/// The ball's speeds given (pfr writes them in decimal).
+namespace speeds {
+constexpr u16 dropZoneChoices = 0x80;  ///< out of the drop zone, upwards: one of 0x80 (pfr: 0..0x80),
+constexpr u16 dropZoneMask = 0x7f;  ///< by the loop counter's low bits
+constexpr u16 snacksRelease = 0xf63c;  ///< down the left ramp: y -2500
+constexpr u16 demonVy = 0x627, demonVx = 0xfdc1;  ///< out of the demon: (-575, 1575)
+}  // namespace speeds
+
+/// Counts and sizes.
+namespace counts {
+constexpr u16 matchText = 0x10;  ///< the match texts' bytes: two characters for each player
+constexpr u16 maskRowBytes = 0x28;  ///< a row of a collision mask
+constexpr u16 duckRows = 0x0f;  ///< the rows of a duck's shape in the mask
+constexpr u16 arcadePrizes = 6;
+constexpr u8 snacks = 3;
+constexpr u16 skyride = 3;  ///< the trips up the skyride that make its three lights
+constexpr u16 cyclonesX5 = 5;  ///< the cyclones a trip makes while X5 is lit
+constexpr u16 dropZoneScrollStep = 5;  ///< rows the screen goes up each frame, to the drop zone
+}  // namespace counts
 
 }  // namespace party
 
