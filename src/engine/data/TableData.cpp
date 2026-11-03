@@ -16,7 +16,6 @@ constexpr std::size_t kPlungerWidth = 10;
 constexpr std::size_t kPlungerHeight = 23;
 constexpr std::size_t kOcclusionGround = 0x580;
 constexpr std::size_t kOcclusionOverhead = 0x6400;
-
 }  // namespace
 
 TableData TableData::load(const std::filesystem::path& prg, int index) {
@@ -33,14 +32,14 @@ TableData TableData::parse(Bytes bytes, const std::string& file, int index) {
   t.image = MzImage::parse(std::move(bytes), file);
   const MzImage& mz = t.image;
   const auto& segs = mz.segments();
-  if (segs.size() < 20) throw DataError(prg.string() + ": unexpected segment layout");
+  if (segs.size() < 20u) throw DataError(prg.string() + ": unexpected segment layout");
 
   // Block roles are recognised by position for the first four blocks and by size for the
   // rest, because the order of the sprite bank differs between tables (TABLE3 stores it
   // after the flipper stacks).
   auto view = [&](std::size_t k) { return mz.image().subspan(segs[k].offset, segs[k].length); };
   auto isForm = [&](std::size_t k) {
-    return segs[k].length > 12 && std::memcmp(mz.image().data() + segs[k].offset, "FORM", 4) == 0;
+    return segs[k].length > 12u && std::memcmp(mz.image().data() + segs[k].offset, "FORM", 4u) == 0;
   };
   std::size_t i = 0;
   t.code = view(i++);
@@ -60,7 +59,7 @@ TableData TableData::parse(Bytes bytes, const std::string& file, int index) {
       else if (collisionMasks == 1) t.dynamic = std::move(m);
       else if (collisionMasks == 2) t.ramps = std::move(m);
       ++collisionMasks;
-    } else if (len == 24448) {
+    } else if (len == 24448u) {
       t.ballGraphics = view(i);
       // The two occlusion maps live at fixed offsets from the start of this block and run
       // past its end into the next one, so they are read straight from the load image.
@@ -69,9 +68,9 @@ TableData TableData::parse(Bytes bytes, const std::string& file, int index) {
         t.occlusionGround = Mask::fromPacked(spill.subspan(kOcclusionGround), kWidth, kHeight, kWidth / 8);
         t.occlusionOverhead = Mask::fromPacked(spill.subspan(kOcclusionOverhead), kWidth, kHeight, kWidth / 8);
       }
-    } else if (len == 24192) {
+    } else if (len == 24192u) {
       t.rampMask = view(i);
-    } else if (len <= 12000) {
+    } else if (len <= 12000u) {
       t.flipperBlocks.push_back(view(i));
     } else {
       t.spriteBank = view(i);

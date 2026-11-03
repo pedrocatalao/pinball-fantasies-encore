@@ -17,6 +17,9 @@ TableScreen::TableScreen(Bytes prg, int table)
 
 namespace {
 
+/// A flipper record's side (flipperRec::side) when it is one of the left key's.
+constexpr u8 kLeftSide = 2;
+
 /// Marks everything a shape encloses, by flooding what is outside it instead.
 void fillEnclosed(u8* mask, int w, int h) {
   std::vector<u8> outside(static_cast<std::size_t>(w) * h, 0);
@@ -55,7 +58,7 @@ void TableScreen::attach(Engine& engine) {
   art_.clear();
   const u16 pictures[3] = {engine.S(at::leftFlipperMasks), engine.S(at::rightFlipperMasks), engine.S(at::thirdFlipperMasks)};
   int which = 0;
-  for (u16 f = engine.A(at::flippers); which < 3 && engine.nativeB(f) != 0; f = static_cast<u16>(f + 0x3c), ++which) {
+  for (u16 f = engine.A(at::flippers); which < 3 && engine.nativeB(f) != 0; f = static_cast<u16>(f + flipperRec::size), ++which) {
     FlipperArt art;
     const int bytes = engine.nativeW(static_cast<u16>(f + flipperRec::width)) * 2;
     art.record = f;
@@ -127,7 +130,7 @@ void TableScreen::followLayer(Engine& e) {
 void TableScreen::followServe(Engine& e) {
   constexpr int kFrames = 5;  // the frames a served ball waits before it drops
   const Engine::Shown& shown = e.shown();
-  const bool hidden = e.B(at::ballHidden) == 0xff;
+  const bool hidden = e.B(at::ballHidden) == kSet;
   // (served: hidden the frame before, shown now, the same row and a little to the right)
   const int jump = shown.ballX - servedFrom_[0];
   if (wasHidden_ && !hidden && shown.ballY == servedFrom_[1] && jump >= 8 && jump <= 24) {
@@ -314,7 +317,7 @@ void TableScreen::buildFlipperArt(Engine& e) {
       while (turn > 1.57079633) turn -= 3.14159265;
       while (turn < -1.57079633) turn += 3.14159265;
       // A shape that hardly turns says little about where its axis is; then the table's place stands.
-      if (std::abs(turn) > 0.17453293) {  // ten degrees
+      if (std::abs(turn) > 0.17453293) {
         const double c = std::cos(turn), s = std::sin(turn);
         const double bx = m1[0] - (c * m0[0] - s * m0[1]), by = m1[1] - (s * m0[0] + c * m0[1]);
         const double d = (1 - c) * (1 - c) + s * s;
@@ -388,7 +391,7 @@ float TableScreen::flipperAngle(Engine& e, const FlipperArt& art) const {
   const int pos = std::max<int>(static_cast<i16>(e.nativeW(static_cast<u16>(art.record + flipperRec::position))), 0);
   const std::size_t q = std::min<std::size_t>(static_cast<std::size_t>(pos / 55), art.angle.size() - 1);
   const std::size_t next = std::min<std::size_t>(q + 1, art.angle.size() - 1);
-  const float frac = static_cast<float>(pos % 55) / 55.0f;
+  const float frac = static_cast<float>(pos % 55) / static_cast<float>(55);
   float step = art.angle[next] - art.angle[q];
   if (step > 3.14159265f) step -= 6.2831853f;  // the right flipper's angles cross half a turn
   if (step < -3.14159265f) step += 6.2831853f;
@@ -562,7 +565,7 @@ void TableScreen::turnFlipper(Engine& e, Bytes& picture, u16 record, u16 was, u1
   auto w = [&](u16 o) { return e.nativeW(static_cast<u16>(record + o)); };
   const u16 lists = e.S(at::flipperPictures);
   const auto& video = e.videoMemory();
-  const std::size_t base = static_cast<std::size_t>(w(flipperRec::y)) * 0x54 + (w(flipperRec::x) >> 2);  // in groups of four dots, 84 to a row
+  const std::size_t base = static_cast<std::size_t>(w(flipperRec::y)) * 0x54 + (w(flipperRec::x) >> 2);  // in groups of four dots
   const u16 stride = w(flipperRec::listSize);
   u16 list = now > was ? static_cast<u16>(was * stride + w(flipperRec::lists)) : static_cast<u16>(w(flipperRec::backLists) - was * stride);
   int steps = now > was ? now - was : was - now;
@@ -599,20 +602,20 @@ void TableScreen::lampsLit(Engine& e, int lamps, std::array<bool, 256>& lit) con
       best = full - half;
       on = dac[colour * 3u + part] * 2 > full + half;
     }
-    lit[l + 1] = lamps == 1 ? true : lamps == 2 ? false : on;
+    lit[l + 1] = lamps == kLampsLit ? true : lamps == kLampsOut ? false : on;
   }
 }
 
 void TableScreen::colours(Engine& e, Rgb* out, int lamps) const {
   std::array<u8, 768> dac = e.colours();
-  if (lamps != 0)
+  if (lamps != kLampsAsGame)
     for (u16 light = 1, lights = e.kw(at::lightCountInsn, 1); light <= lights; ++light) {
       u16 record = e.W(at::lightRecords, static_cast<u16>((light - 1) * 2));
       u16 at = static_cast<u16>(e.nativeB(record++) * 3);
       const u8 bytes = e.nativeB(record++);
       for (u8 i = 0; i < bytes && at < 768; ++i, ++at) {
         const u8 full = e.nativeB(record++) & 0x3f;
-        dac[at] = lamps == 1 ? full : full >> 1;
+        dac[at] = lamps == kLampsLit ? full : full >> 1;
       }
     }
   auto wide = [](u8 v) { return static_cast<u8>((v << 2) | (v >> 4)); };  // 0-63 as 0-255
@@ -628,7 +631,7 @@ void TableScreen::draw(Engine& e, u8* frame, const View& v, HdFrame* hd) const {
     std::memcpy(frame + static_cast<std::size_t>(y) * kWidth, picture_.data() + static_cast<std::size_t>(row) * kWidth, kWidth);
   }
   const Engine::Shown& shown = e.shown();
-  const bool waiting = e.B(at::attract) == 0xff;  // no game: the original has no ball to show
+  const bool waiting = e.B(at::attract) == kSet;  // no game: the original has no ball to show
   if (hd && !lampAreas_.empty()) {
     // Every dot of the window is a dot of the playfield's picture: the unlit one, with how lit
     // the spot is alongside, which the renderer blends the lit picture in by. What a lamp
@@ -748,7 +751,7 @@ void TableScreen::draw(Engine& e, u8* frame, const View& v, HdFrame* hd) const {
     // than the frames, which is what makes it flow rather than step.
     if (ball_.valid() && !waiting) {
       // (a ball in play is drawn lifted with a shaken table, as the original draws it: cs:4140)
-      const float lift = e.B(at::ballHidden) == 0xff ? 0.0f : static_cast<float>(e.W(at::nudgeLift).s());
+      const float lift = e.B(at::ballHidden) == kSet ? 0.0f : static_cast<float>(e.W(at::nudgeLift).s());
       // Where the ball is to a 1024th of a dot, as the engine moves it, rather than the whole dot
       // the original draws it on: on a screen many times the original's, whole dots move it in
       // jumps. (The whole dot, should anything have put it somewhere without the finer place.)
@@ -850,7 +853,7 @@ void TableScreen::draw(Engine& e, u8* frame, const View& v, HdFrame* hd) const {
 
 std::vector<bool> TableScreen::flipperIsLeft(Engine& e) const {
   std::vector<bool> left;
-  for (const FlipperArt& art : art_) left.push_back(e.nativeB(art.record) == 2);
+  for (const FlipperArt& art : art_) left.push_back(e.nativeB(art.record + flipperRec::side) == kLeftSide);
   return left;
 }
 

@@ -43,9 +43,11 @@ constexpr SoundAddresses kTables[4] = {
 /// A sound effect's record has a byte between the note and the channel that no routine reads;
 /// it is nought in every record.
 constexpr u16 soundRecSpare = 2;
+/// The records' sizes: a tune's three bytes, a sound effect's four.
+constexpr std::size_t kTuneRecSize = 3, kSoundRecSize = 4;
 
 Jingle readJingle(ByteView d, std::size_t at) {
-  if (at + 3 > d.size()) return {};
+  if (at + kTuneRecSize > d.size()) return {};
   return {d[at + tuneRec::place], d[at + tuneRec::repeats], d[at + tuneRec::priority]};
 }
 
@@ -58,7 +60,7 @@ bool plausible(const Sfx& s) {
 }  // namespace
 
 Sfx readSfx(ByteView d, std::size_t at) {
-  if (at + 4 > d.size()) return {};
+  if (at + kSoundRecSize > d.size()) return {};
   // The third byte is always zero in a well-formed record.
   if (d[at + soundRecSpare] != 0) return {};
   return {d[at + soundRec::sample], d[at + soundRec::note], d[at + soundRec::channel]};

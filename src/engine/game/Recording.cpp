@@ -9,7 +9,7 @@ namespace encore {
 
 namespace {
 
-constexpr char kMagic[4] = {'P', 'F', 'R', 'P'};
+constexpr char kMagic[4u] = {'P', 'F', 'R', 'P'};
 
 struct Writer {
   Bytes out;
@@ -67,7 +67,7 @@ struct Reader {
 
 Bytes Recording::save() const {
   Writer w;
-  w.out.insert(w.out.end(), kMagic, kMagic + 4);
+  w.out.insert(w.out.end(), kMagic, kMagic + 4u);
   w.u16_(kFormat);
   w.u8_(static_cast<u8>(table));
   w.u64_(seed);
@@ -112,7 +112,7 @@ Bytes Recording::save() const {
 std::optional<Recording> Recording::load(ByteView data) {
   Reader r{data};
   if (!r.need(4) || std::memcmp(data.data(), kMagic, 4) != 0) return std::nullopt;
-  r.at = 4;
+  r.at = 4u;
   if (r.le(2) != kFormat) return std::nullopt;
   Recording p;
   p.table = r.u8_();
@@ -128,7 +128,8 @@ std::optional<Recording> Recording::load(ByteView data) {
   p.carry.balls = r.u8_();
   p.carry.scrollPos = static_cast<u16>(r.le(2));
   p.carry.scrollAt = static_cast<u16>(r.le(2));
-  if (p.table > 3 || static_cast<u8>(p.options.angle) > 2 || static_cast<u8>(p.options.scrollSpeed) > 2)
+  if (p.table > 3 || static_cast<u8>(p.options.angle) > static_cast<u8>(Angle::Higher) ||
+      static_cast<u8>(p.options.scrollSpeed) > static_cast<u8>(ScrollSpeed::Soft))
     return std::nullopt;
   for (HighScore& h : p.highScores) {
     h.score = r.bcd();

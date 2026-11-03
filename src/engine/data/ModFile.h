@@ -18,6 +18,15 @@ constexpr std::size_t mark = 1080;         ///< four letters: "M.K." and the lik
 constexpr std::size_t patterns = 1084;
 }  // namespace modRec
 
+/// A note in a pattern: the sample's number is split between the high
+/// halves of its first and third bytes; the period is twelve bits, the effect four.
+namespace noteRec {
+constexpr std::size_t period = 0;  ///< its top four bits in the low half, with the sample's high half above
+constexpr std::size_t periodLow = 1;
+constexpr std::size_t effect = 2;  ///< in the low half, the sample's low half above
+constexpr std::size_t param = 3;
+}  // namespace noteRec
+
 /// A sample's record. Its words are big-endian, and count words.
 namespace sampleRec {
 constexpr std::size_t size = 30;

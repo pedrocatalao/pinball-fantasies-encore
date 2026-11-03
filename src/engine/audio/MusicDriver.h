@@ -24,6 +24,7 @@
 #include <mutex>
 #include <vector>
 
+#include "engine/data/ModFile.h"
 #include "engine/table/Engine.h"
 
 namespace encore {
@@ -59,6 +60,9 @@ class Conductor {
 
 class MusicDriver : public SoundDriver {
  public:
+  /// What int66::status answers here: bit 3 clear, no effect still sounding (SoundDriver).
+  static constexpr u8 kStatusQuiet = 7;
+
   explicit MusicDriver(int outputRate = 48000);
 
   /// int66::load: the module (a .MOD file's bytes). False if it is not one.
@@ -71,7 +75,7 @@ class MusicDriver : public SoundDriver {
   void volume(u16 level) override;
   void stop() override;
   u8 start() override;
-  u8 status() override { return 7; }
+  u8 status() override { return kStatusQuiet; }
 
   /// This version's pause: a stop keeps every note where it is, and the next start goes on
   /// from there. (The driver's own stop silences the channels for good.)

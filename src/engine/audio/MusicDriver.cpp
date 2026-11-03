@@ -17,7 +17,8 @@ constexpr u16 kPeriods[16 * 36] = {
 #include "engine/audio/DriverPeriods.inc"
 };
 
-/// The vibrato's wave (ds:69e2): half a sine, thirty-two steps.
+/// The vibrato's wave (ds:69e2): half a sine, thirty-two steps; the other half is the same
+/// below nought, which the top bit of the place in the wave says.
 constexpr u8 kSine[32] = {0x00, 0x18, 0x31, 0x4a, 0x61, 0x78, 0x8d, 0xa1, 0xb4, 0xc5, 0xd4, 0xe0, 0xeb, 0xf4, 0xfa, 0xfd,
                           0xff, 0xfd, 0xfa, 0xf4, 0xeb, 0xe0, 0xd4, 0xc5, 0xb4, 0xa1, 0x8d, 0x78, 0x61, 0x4a, 0x31, 0x18};
 
@@ -115,7 +116,7 @@ bool MusicDriver::load(ByteView mod) {
   const bool modern = mark == kMarkMK || mark == kMarkFLT4;
   const std::size_t count = modern ? 31 : 15;
   const std::size_t header = modRec::samples + count * sampleRec::size;
-  if (mod.size() < header + songRec::size + (modern ? 4 : 0)) return false;
+  if (mod.size() < header + songRec::size + (modern ? 4u : 0)) return false;
   length_ = mod[header + songRec::length];
   restart_ = mod[header + songRec::restart] & 0x7f;
   if (restart_ >= length_) restart_ = 0;
@@ -125,12 +126,12 @@ bool MusicDriver::load(ByteView mod) {
     patterns = std::max(patterns, order_[i]);
   }
   ++patterns;
-  const std::size_t notes = header + songRec::size + (modern ? 4 : 0);
+  const std::size_t notes = header + songRec::size + (modern ? 4u : 0);
   if (mod.size() < notes + std::size_t{patterns} * 1024u) return false;
   cells_.assign(std::size_t{patterns} * 0x300, 0);
   for (std::size_t i = 0; i < std::size_t{patterns} * 0x100; ++i) {
-    const u8* in = &mod[notes + i * 4];
-    const u16 period = static_cast<u16>(((in[0] & 0x0f) << 8) | in[1]);
+    const u8* in = &mod[notes + i * 4u];
+    const u16 period = static_cast<u16>(((in[0] & 0x0f) << 8) | in[noteRec::periodLow]);
     u8 note = 0;
     bool known = period == 0;
     for (u8 n = 0; n < 36 && !known; ++n)
@@ -139,11 +140,11 @@ bool MusicDriver::load(ByteView mod) {
         known = true;
       }
     if (!known) continue;
-    const u8 sample = static_cast<u8>(((in[0] & 0xf0) | (in[2] >> 4)) & 0x1f);
+    const u8 sample = static_cast<u8>(((in[0] & 0xf0) | (in[noteRec::effect] >> 4)) & 0x1f);
     u8* out = &cells_[i * 3];
     out[0] = static_cast<u8>(note | (sample << 6));
-    out[1] = static_cast<u8>((sample >> 2) | ((in[2] & 0x0f) << 3));
-    out[2] = in[3];
+    out[1] = static_cast<u8>((sample >> 2) | ((in[noteRec::effect] & 0x0f) << 3));  // (the word's high byte)
+    out[2] = in[noteRec::param];
   }
   // the samples (cs:0964)
   samples_.fill(Sample{});
@@ -312,12 +313,12 @@ void MusicDriver::trigger(Channel& c, u8 sample, u8 note, u8 effect, u8 param) {
       c.tick = Channel::Tick::Arpeggio;
       break;
     case modEffect::portamentoUp:  // the pitch slides up
-      c.target = 0x71;  // (the highest note's period)
+      c.target = 0x71;
       c.portamento = static_cast<i16>(-param);
       c.tick = Channel::Tick::Portamento;
       break;
     case modEffect::portamentoDown:  // or down
-      c.target = 0x358;  // (the lowest's)
+      c.target = 0x358;
       c.portamento = param;
       c.tick = Channel::Tick::Portamento;
       break;
@@ -450,7 +451,7 @@ void MusicDriver::playRow() {
   if (conductor && !placed_) position_ = conductor->next(static_cast<u8>(position_));
   placed_ = false;
   const u8 row = pendingRow_ ? static_cast<u8>(pendingRow_ - 1) : 0;
-  rowAt_ = std::size_t{order_[position_ & 0x7f]} * 0x300 + static_cast<u8>(row << 2) * 3u;
+  rowAt_ = std::size_t{order_[position_ & 0x7f]} * 0x300 + static_cast<u8>(row << 2) * unsigned{3};
   pendingRow_ = 0;
 }
 
@@ -500,7 +501,7 @@ void MusicDriver::mixVoiceBalanced(Channel& c, bool left, float* out, std::size_
   };
   const float wanted = static_cast<float>(c.volume >> 8) / 64.0f / 128.0f * 0.25f * master;
   if (std::exchange(c.started, false)) c.level = 0;
-  const float ease = static_cast<float>(1.0 - std::exp(-1.0 / (0.0015 * rate_)));  // a millisecond and a half
+  const float ease = static_cast<float>(1.0 - std::exp(-1.0 / (0.0015 * rate_)));
   // mostly on its own side, a little on the other (the driver: all on its own side)
   const float toLeft = left ? kOwnSide : 1.0f - kOwnSide, toRight = 1.0f - toLeft;
   const std::vector<float>& sinc = sincTable();

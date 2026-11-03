@@ -14,6 +14,7 @@
 // All but the first two are in the table's own memory, where its rules read and write them.
 #include <atomic>
 
+#include "engine/Values.h"
 #include "engine/audio/MusicDriver.h"
 #include "engine/table/Engine.h"
 
@@ -26,8 +27,9 @@ class TableMusic final : public SoundDriver, public Conductor {
   // --- the table's side
   /// (The table's effects are played a semitone above where the driver would put them: the
   /// pitch this version has had them at from the start.)
+  static constexpr int kEffectsRaised = 1;
   void effect(u8 sample, u8 note, u8 volume, u8 channel) override {
-    driver_.effect(sample, static_cast<u8>(note + 1), volume, channel);
+    driver_.effect(sample, static_cast<u8>(note + kEffectsRaised), volume, channel);
   }
   u8 jump(u16 position) override;
   void volume(u16 level) override { driver_.volume(level); }
@@ -52,17 +54,20 @@ class TableMusic final : public SoundDriver, public Conductor {
 
  private:
   struct State {
+    // where each part is in the word
+    static constexpr int kInterrupt = 0x80;
+    static constexpr u32 kOff = 0x80000000u;
     u8 position = 0;
     bool interrupt = false;
     u8 repeat = 0, priority = 0, music = 0;
     bool off = false;
     State() = default;
     explicit State(u32 v)
-        : position(static_cast<u8>(v & 0x7f)), interrupt((v & 0x80) != 0), repeat(static_cast<u8>(v >> 8)),
-          priority(static_cast<u8>(v >> 16)), music(static_cast<u8>(v >> 24 & 0x7f)), off((v & 0x80000000u) != 0) {}
+        : position(static_cast<u8>(v & 0x7f)), interrupt((v & kInterrupt) != 0), repeat(static_cast<u8>(v >> 8)),
+          priority(static_cast<u8>(v >> 16)), music(static_cast<u8>(v >> 24 & 0x7f)), off((v & kOff) != 0) {}
     u32 pack() const {
-      return u32{position} | u32{interrupt} << 7 | u32{repeat} << 8 | u32{priority} << 16 | u32{static_cast<u8>(music & 0x7f)} << 24 |
-             u32{off} << 31;
+      return u32{position} | u32{interrupt} << 7 | u32{repeat} << 8 | u32{priority} << 16 |
+             u32{static_cast<u8>(music & 0x7f)} << 24 | u32{off} << 31;
     }
   };
 

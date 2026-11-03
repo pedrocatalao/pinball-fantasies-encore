@@ -32,13 +32,13 @@ void TableMusic::setView(u32 packed) {
   position_ = s.position;
   interrupt_ = s.interrupt;
   if (engine_.B(at::musicRepeats) != 0 && s.repeat == 0) {  // the jingle has ended (cs:3a6a)
-    engine_.B(at::jingleEnded) = 0xff;
-    engine_.B(at::jingleEndedRules) = 0xff;
+    engine_.B(at::jingleEnded) = kSet;
+    engine_.B(at::jingleEndedRules) = kSet;
   }
   engine_.B(at::musicRepeats) = s.repeat;
   engine_.B(at::musicPriority) = s.priority;
   engine_.B(at::musicNext) = s.music;
-  if ((engine_.B(at::musicOff) != 0) != s.off) engine_.B(at::musicOff) = s.off ? 0xff : 0;
+  if ((engine_.B(at::musicOff) != 0) != s.off) engine_.B(at::musicOff) = s.off ? kSet : 0;
   last_ = view();
 }
 

@@ -26,7 +26,8 @@ ModFile ModFile::parse(ByteView b, std::string name) {
   };
   mod.title = text(modRec::title, 20u);
   const char* tag = reinterpret_cast<const char*>(b.data() + modRec::mark);
-  if (std::memcmp(tag, "M.K.", 4) != 0 && std::memcmp(tag, "M!K!", 4) != 0 && std::memcmp(tag, "FLT4", 4) != 0)
+  if (std::memcmp(tag, "M.K.", 4u) != 0 && std::memcmp(tag, "M!K!", 4u) != 0 &&
+      std::memcmp(tag, "FLT4", 4u) != 0)
     throw DataError(name + ": not a 4-channel ProTracker module");
 
   for (int i = 0; i < 31; ++i) {
@@ -51,12 +52,12 @@ ModFile ModFile::parse(ByteView b, std::string name) {
   if (modRec::patterns + patternBytes > b.size()) throw DataError(name + ": truncated pattern data");
   mod.notes.resize(static_cast<std::size_t>(mod.patternCount) * 64 * 4);
   for (std::size_t i = 0; i < mod.notes.size(); ++i) {
-    const std::size_t o = modRec::patterns + i * 4;
+    const std::size_t o = modRec::patterns + i * 4u;
     ModNote& n = mod.notes[i];
-    n.sample = static_cast<u8>((b[o] & 0xf0) | (b[o + 2] >> 4));
-    n.period = static_cast<u16>(((b[o] & 0x0f) << 8) | b[o + 1]);
-    n.effect = b[o + 2] & 0x0f;
-    n.param = b[o + 3];
+    n.sample = static_cast<u8>((b[o] & 0xf0) | (b[o + noteRec::effect] >> 4));
+    n.period = static_cast<u16>(((b[o] & 0x0f) << 8) | b[o + noteRec::periodLow]);
+    n.effect = b[o + noteRec::effect] & 0x0f;
+    n.param = b[o + noteRec::param];
   }
   std::size_t pos = modRec::patterns + patternBytes;
   for (ModSample& s : mod.samples) {
