@@ -2,105 +2,107 @@
 
 namespace encore {
 
+using namespace speed;
+
 SpeedDevils::SpeedDevils(ByteView prg) : Flow(prg, 1) {
   bindRules();
   bindSteps();
-  bindNative(0x0004, [this] { lightsOut(); });
-  bindNative(0x0008, [this] {  // a new game
+  bindNative(routines::tableStart, [this] { lightsOut(); });
+  bindNative(routines::tableNewGame, [this] {  // a new game
     lightsOut();
     stopBlinks();
-    at0217();
+    resetJackpot();
     clearBall();
-    for (u16 player = 0; player < 8; ++player) savePlayer(static_cast<u16>(player * 0x5c));
-    b(0x0071) = 0;
-    b(0x0070) = 0;
-    b(0x10ae) = 0;
-    for (u16 i = 0; i < 0x10; ++i) b(static_cast<u16>(0x1d41 + i)) = 0x20;
-    for (u16 i = 0; i < 0x10; ++i) b(static_cast<u16>(0x1d53 + i)) = 0x20;
+    for (u16 player = 0; player < 8; ++player) savePlayer(static_cast<u16>(player * rec::size));
+    b(var::extraBalls) = 0;
+    b(var::matchWon) = 0;
+    b(var::partyOn) = 0;
+    for (u16 i = 0; i < 0x10; ++i) b(static_cast<u16>(text::matchPlayers + i)) = 0x20;
+    for (u16 i = 0; i < 0x10; ++i) b(static_cast<u16>(text::matchWinners + i)) = 0x20;
   });
-  bindNative(0x0149, [this] {  // the music while nobody plays
-    music(0x0a47);
-    b(0x211b) = b(0x0a49);
-    b(0x2119) = 9;
+  bindNative(routines::tableAttractMusic, [this] {  // the music while nobody plays
+    music(tunes::attract);
+    b(var::musicAfter) = b(tunes::attract + 2);
+    b(var::musicNext) = 9;
   });
-  bindNative(0x0162, [this] {  // the music a game opens with
-    music(0x0a41);
-    b(0x211b) = b(0x0a43);
-    b(0x2119) = 0;
+  bindNative(routines::tableGameMusic, [this] {  // the music a game opens with
+    music(tunes::gameStart);
+    b(var::musicAfter) = b(tunes::gameStart + 2);
+    b(var::musicNext) = 0;
   });
-  bindNative(0x0175, [this] {  // the ball is lost
-    b(0x3396) = 0xff;
-    w(0x334d) = high() ? 0x103 : 0x171;
-    placeBall(0x118, 0x230);
-    b(0x2d3a) = 0xff;
-    b(0x3397) = 0;
-    b(0x33aa) = 0;
-    b(0x3351) = 0;
-    award(0x063a);
-    addTimer(0x01f1);
+  bindNative(routines::tableDrained, [this] {  // the ball is lost
+    b(var::betweenBalls) = 0xff;
+    w(var::lookAtSoft) = high() ? 0x103 : 0x171;
+    placeBall(spots::drained);
+    b(var::ballHidden) = 0xff;
+    b(var::flippersLive) = 0;
+    b(var::modeRunning) = 0;
+    b(var::musicPriority) = 0;
+    award(awards::drained);
+    addTimer(timers::drainSfx.routine);
   });
-  bindNative(0x01f1, [this] {
-    if (!countTo(0x3661, 5)) return;
-    sfx(0x09fe);
+  bindNative(timers::drainSfx.routine, [this] {
+    if (!countTo(timers::drainSfx.counter, 5)) return;
+    sfx(sounds::ballDrained);
     endTimer();
   });
-  bindNative(0x0c70, [this] {
-    w(0x378d) = 0;
-    if (b(0x33a8) == 0) endTimer();
+  bindNative(routines::idleWhileUntouched, [this] {
+    w(var::idleFrames) = 0;
+    if (b(var::ballUntouched) == 0) endTimer();
   });
-  bindNative(0x1078, [this] {  // tilt
-    b(0x3397) = 0;
-    b(0x2119) = 0x3e;
-    music(0x0a4d);
-    startScript(0x1d1b);
+  bindNative(routines::tableTilt, [this] {  // tilt
+    b(var::flippersLive) = 0;
+    b(var::musicNext) = 0x3e;
+    music(tunes::tilt);
+    startScript(scripts::tilt);
     stopBlinks();
     lightsDark();
   });
-  bindNative(0x1097, [this] { music(0x0a4a); });
-  bindNative(0x109e, [this] {  // a flipper pressed: each row of three lane lights moves along one
-    if (b(0x3353) != 0xff) return;
-    b(0x3353) = 0;
+  bindNative(routines::tableTiltWarning, [this] { music(tunes::warnTilt); });
+  bindNative(routines::tableFlipperPressed, [this] {  // a flipper pressed: each row of three lights, BUR, NIN and PIT, moves along one
+    if (b(var::flipperPressed) != 0xff) return;
+    b(var::flipperPressed) = 0;
     auto rotate = [this](u16 flags) {
       const u8 first = b(flags);
       b(flags) = b(static_cast<u16>(flags + 1));
       b(static_cast<u16>(flags + 1)) = b(static_cast<u16>(flags + 2));
       b(static_cast<u16>(flags + 2)) = first;
     };
-    rotate(0x362d);
-    row(0x362d, 3, 0x10);
-    b(0x1067) = b(0x1068) = b(0x1069) = 0;
-    rotate(0x3630);
-    row(0x3630, 3, 0x13);
-    b(0x106a) = b(0x106b) = b(0x106c) = 0;
-    if (w(0x1073) != 0) return;
-    w(0x106f) = 0;
-    w(0x106d) = 0;
-    w(0x1071) = 0;
-    rotate(0x3623);
-    row(0x3623, 3, 0x06);
+    rotate(var::lightStates + lights::bur);
+    row(var::lightStates + lights::bur, 3, lights::bur);
+    b(var::blinkBur) = b(var::blinkBur + 1) = b(var::blinkBur + 2) = 0;
+    rotate(var::lightStates + lights::nin);
+    row(var::lightStates + lights::nin, 3, lights::nin);
+    b(var::blinkNin) = b(var::blinkNin + 1) = b(var::blinkNin + 2) = 0;
+    if (w(var::timeoutPitAll) != 0) return;
+    w(var::timeoutPit1) = 0;
+    w(var::timeoutPit2) = 0;
+    w(var::timeoutPit0) = 0;
+    rotate(var::lightStates + lights::pit);
+    row(var::lightStates + lights::pit, 3, lights::pit);
   });
-  bindNative(0x241a, [this] { everyFrame(); });
-  bindNative(0x2512, [this] {  // after a bumper's score
-    at24de();
-    w(0x378d) = 0;
-    if (w(0x378f) == 0xff) {
-      startScript(0x17fa);
-      w(0x378f) = 0;
+  bindNative(routines::tableFrame, [this] { everyFrame(); });
+  bindNative(routines::tableBumper, [this] {  // after a bumper's score
+    modeCountHit();
+    w(var::idleFrames) = 0;
+    if (w(var::idleShowing) == 0xff) {
+      startScript(scripts::showScore);
+      w(var::idleShowing) = 0;
     }
   });
-  bindNative(0x2711, [this] {  // each second of a count-down: at nought the mode ends
-    if (b(0x378a) != 0x2a || b(0x378b) != 0x37) return;
-    for (u16 mode : {u16{0x10a8}, u16{0x10a7}})
+  bindNative(routines::tableModeSecond, [this] {  // each second of a count-down: at nought the mode ends
+    if (b(var::countdownTens) != 0x2a || b(var::countdownUnits) != 0x37) return;
+    for (u16 mode : {var::modeRamp, var::modeHit})
       if (b(mode) == 0xff) {
-        b(0x211c) = 1;
-        music(mode == 0x10a8 ? 0x0aa1 : 0x0aaa);
-        b(0x2119) = 3;
+        b(var::musicRepeats) = 1;
+        music(mode == var::modeRamp ? tunes::modeOverRamp : tunes::modeOverHit);
+        b(var::musicNext) = 3;
       }
-    b(0x10a7) = 0;
-    b(0x10a8) = 0;
-    b(0x3351) = 0;
-    b(0x2119) = 3;
-    b(0x211c) = 1;
+    b(var::modeHit) = 0;
+    b(var::modeRamp) = 0;
+    b(var::musicPriority) = 0;
+    b(var::musicNext) = 3;
+    b(var::musicRepeats) = 1;
   });
 }
 
@@ -113,16 +115,16 @@ void SpeedDevils::row(u16 flags, u16 count, u8 firstLight) {
   }
 }
 
-void SpeedDevils::lights(std::initializer_list<u8> which, void (SpeedDevils::*what)(u8)) {
+void SpeedDevils::all(std::initializer_list<u8> which, void (SpeedDevils::*what)(u8)) {
   for (u8 light : which) (this->*what)(light);
 }
 
 void SpeedDevils::scored() {
-  b(0x33a6) = 0xff;
-  w(0x378d) = 0;
-  if (w(0x378f) == 0xff) {
-    startScript(0x17fa);
-    w(0x378f) = 0;
+  b(var::scoredThisBall) = 0xff;
+  w(var::idleFrames) = 0;
+  if (w(var::idleShowing) == 0xff) {
+    startScript(scripts::showScore);
+    w(var::idleShowing) = 0;
   }
 }
 
@@ -130,68 +132,82 @@ void SpeedDevils::scored() {
 /// is always once, and the bonus is multiplied only when it is counted. Amended: here too it
 /// is added as many times as the multiplier now stands at.
 void SpeedDevils::addBonus(u16 amount) {
-  u16 times = amended ? b(0x095d) : w(0x3379);
-  do addScore(0x3361, amount);
+  u16 times = amended ? b(var::bonusMultiplier) : w(var::bonusTimes);
+  do addScore(var::bonus, amount);
   while (times-- > 1);
 }
 
 void SpeedDevils::hold() {
-  b(0x2d3a) = 0xff;
-  placeBall(0x100, 0x29);
+  b(var::ballHidden) = 0xff;
+  placeBall(spots::pit);
 }
 
 void SpeedDevils::sameBallAgain() {
-  --b(0x0071);
-  w(0x378d) = 0;
-  for (u16 i = 0; i < 12; ++i) b(static_cast<u16>(0x4671 + i)) = 0x12;
-  w(0x467d) = 0;
-  bx = 0x157e;
+  --b(var::extraBalls);
+  w(var::idleFrames) = 0;
+  for (u16 i = 0; i < 12; ++i) b(static_cast<u16>(var::scoreDrawn + i)) = 0x12;
+  w(var::scoreDrawnGroups) = 0;
+  bx = scripts::shootAgain;
   call(nativeW(bx));
 }
 
-void SpeedDevils::at0217() {
-  for (u16 i = 0; i < 12; ++i) b(static_cast<u16>(0x096a + i)) = b(static_cast<u16>(0x0982 + i));
+void SpeedDevils::resetJackpot() {
+  for (u16 i = 0; i < 12; ++i) b(static_cast<u16>(var::jackpot + i)) = b(static_cast<u16>(var::jackpotStart + i));
 }
 
 void SpeedDevils::clearBall() {
-  b(0x2047) = 0x38;
-  b(0x2062) = 0x38;
-  b(0x2058) = 0x38;
-  for (u16 at : {u16{0x464d}, u16{0x3361}, u16{0x1373}, u16{0x1424}})
+  b(text::multiplier) = 0x38;
+  b(text::ballA) = 0x38;
+  b(text::playerA) = 0x38;
+  for (u16 at : {var::score, var::bonus, var::modeHitScore, var::modeRampScore})
     for (u16 i = 0; i < 12; ++i) b(static_cast<u16>(at + i)) = 0;
-  b(0x007a) = 0;
-  w(0x10a1) = 0;
-  for (u16 a = 0x1067; a <= 0x106c; ++a) b(a) = 0;
-  for (u16 a : {u16{0x106d}, u16{0x106f}, u16{0x1071}, u16{0x1089}, u16{0x1073}}) w(a) = 0;
-  b(0x1077) = 0;
-  b(0x1078) = 0;
-  for (u16 a : {u16{0x107f}, u16{0x107d}, u16{0x1083}, u16{0x1081}, u16{0x1085}}) w(a) = 0;
-  b(0x331e) = 0;
-  b(0x10aa) = 0;
-  b(0x10ab) = 0;
-  b(0x095d) = 1;
-  for (u16 i = 0; i < 12; ++i) b(static_cast<u16>(0x0058 + i)) = 0;
-  w(0x0056) = 0;
-  w(0x10a5) = 0x1e;
-  w(0x10a3) = 0x28;
-  for (u16 a : {u16{0x108b}, u16{0x1087}, u16{0x107b}, u16{0x1079}}) w(a) = 0;
-  b(0x33aa) = 0;
-  b(0x10a8) = 0;
-  b(0x10a7) = 0;
+  b(var::lightPhasePlace) = 0;
+  w(var::carMods) = 0;
+  for (u16 a = var::blinkBur; a <= var::blinkNin + 2; ++a) b(a) = 0;  // and blinkNin
+  for (u16 a : {var::timeoutPit2, var::timeoutPit1, var::timeoutPit0, var::timeoutGearBlink, var::timeoutPitAll}) w(a) = 0;
+  b(var::mbPending) = 0;
+  b(var::mbActive) = 0;
+  for (u16 a : {var::timeoutMilesLeft, var::timeoutMilesRight, var::pedalMetal0, var::pedalMetal1, var::pedalMetalJump}) w(a) = 0;
+  b(var::layer) = 0;
+  b(var::holdBonus) = 0;
+  b(var::keptUnread) = 0;
+  b(var::bonusMultiplier) = 1;
+  for (u16 i = 0; i < 12; ++i) b(static_cast<u16>(var::milesDigits + i)) = 0;
+  w(var::miles) = 0;
+  w(var::jumpAt) = 0x1e;
+  w(var::offroadAt) = 0x28;
+  for (u16 a : {var::curSpeed, var::curGear, var::maxPlace, var::curPlace}) w(a) = 0;
+  b(var::modeRunning) = 0;
+  b(var::modeRamp) = 0;
+  b(var::modeHit) = 0;
 }
 
 namespace {
 struct Kept {
   u16 inRecord, at, bytes;
 };
+constexpr u16 kept(u16 field) { return static_cast<u16>(var::playerRecords + field); }
 /// What a player's record holds, and where each piece lives while that player plays
 /// (cs:0f9e). The last two are only ever brought back, not kept (cs:0cbc).
 constexpr Kept kKept[] = {
-    {0xb3, 0x464d, 12}, {0xbf, 0x3361, 12}, {0xcb, 0x0058, 12}, {0xd7, 0x0056, 2}, {0xdd, 0x10a5, 2}, {0xdf, 0x10a3, 2},
-    {0xd9, 0x108b, 2},  {0xdb, 0x1087, 2},  {0xe3, 0x107b, 2},  {0xe1, 0x1079, 2}, {0xe5, 0x3626, 1}, {0xe6, 0x3633, 4},
-    {0xea, 0x3627, 5},  {0xef, 0x364f, 5},  {0xf6, 0x10ab, 1},  {0xf4, 0x10a1, 2},
+    {kept(rec::score), var::score, 12},
+    {kept(rec::bonus), var::bonus, 12},
+    {kept(rec::milesDigits), var::milesDigits, 12},
+    {kept(rec::miles), var::miles, 2},
+    {kept(rec::jumpAt), var::jumpAt, 2},
+    {kept(rec::offroadAt), var::offroadAt, 2},
+    {kept(rec::curSpeed), var::curSpeed, 2},
+    {kept(rec::curGear), var::curGear, 2},
+    {kept(rec::maxPlace), var::maxPlace, 2},
+    {kept(rec::curPlace), var::curPlace, 2},
+    {kept(rec::pitStopGoal), var::lightStates + lights::pitStopGoal, 1},
+    {kept(rec::gear), var::lightStates + lights::gear, 4},
+    {kept(rec::carPartLit), var::lightStates + lights::carPartLit, 5},
+    {kept(rec::carPart), var::lightStates + lights::carPart, 5},
+    {kept(rec::keptUnread), var::keptUnread, 1},
+    {kept(rec::carMods), var::carMods, 2},
 };
-constexpr Kept kBroughtBackOnly[] = {{0x103, 0x1373, 12}, {0xf7, 0x1424, 12}};
+constexpr Kept kBroughtBackOnly[] = {{kept(rec::modeHitScore), var::modeHitScore, 12}, {kept(rec::modeRampScore), var::modeRampScore, 12}};
 }  // namespace
 
 void SpeedDevils::savePlayer(u16 player) {
@@ -200,304 +216,308 @@ void SpeedDevils::savePlayer(u16 player) {
 }
 
 void SpeedDevils::restorePlayer() {
-  const u16 player = static_cast<u16>((b(0x37b1) - 1) * 0x5c);
+  const u16 player = static_cast<u16>((b(var::player) - 1) * rec::size);
   for (const Kept& k : kKept)
     for (u16 i = 0; i < k.bytes; ++i) b(static_cast<u16>(k.at + i)) = b(static_cast<u16>(player + k.inRecord + i));
   for (const Kept& k : kBroughtBackOnly)
     for (u16 i = 0; i < k.bytes; ++i) b(static_cast<u16>(k.at + i)) = b(static_cast<u16>(player + k.inRecord + i));
   // and the lights are put as that says
-  if (b(0x3626) != 0) {
-    blink(0x09, later(b(0x007a), 0x0f), 0x0f);
-    setLight(0x09);
+  if (lightState(lights::pitStopGoal) != 0) {
+    blink(lights::pitStopGoal, later(b(var::lightPhasePlace), 0x0f), 0x0f);
+    setLight(lights::pitStopGoal);
   }
-  for (u16 i = 0; i < w(0x1087); ++i) setLight(static_cast<u8>(0x1a + i));
+  for (u16 i = 0; i < w(var::curGear); ++i) setLight(static_cast<u8>(lights::gearNum + i));
   // (amended: the four lights towards the next gear are not carried from ball to ball; each
   // ball earns its own)
-  if (amended) for (u16 a = 0x3633; a <= 0x3636; ++a) b(a) = 0;
-  row(0x3633, 4, 0x16);
+  if (amended) for (u16 a = var::lightStates + lights::gear; a <= var::lightStates + lights::gear + 3; ++a) b(a) = 0;
+  row(var::lightStates + lights::gear, 4, lights::gear);
   for (u16 i = 0; i < 5; ++i) {
-    const u8 light = static_cast<u8>(0x32 + i);
-    if (b(static_cast<u16>(0x364f + i)) != 0xff) continue;
-    blink(light, (light & 1) ? later(b(0x007a), 0x0f) : b(0x007a), 0x0f);
+    const u8 light = static_cast<u8>(lights::carPart + i);
+    if (b(static_cast<u16>(var::lightStates + lights::carPart + i)) != 0xff) continue;
+    blink(light, (light & 1) ? later(b(var::lightPhasePlace), 0x0f) : b(var::lightPhasePlace), 0x0f);
   }
   for (u16 i = 0; i < 5; ++i)
-    if (b(static_cast<u16>(0x3627 + i)) == 0xff) blink(static_cast<u8>(0x0a + i), 0, 0x0f);
-  if (b(0x3626) == 0xff) lightOn(0x09);
-  for (u16 i = 0; i < w(0x1079); ++i) b(static_cast<u16>(0x363d + i)) = 0xff;
-  row(0x363d, 10, 0x20);
-  for (u16 n = static_cast<u16>(w(0x107b) - w(0x1079)), light = static_cast<u16>(w(0x1079) + 0x20); n > 0; --n, ++light)
-    blink(static_cast<u8>(light), (light & 1) ? later(b(0x007a), 0x0f) : b(0x007a), 0x0f);
-  if (u16 n = w(0x108b); n != 0) {
+    if (b(static_cast<u16>(var::lightStates + lights::carPartLit + i)) == 0xff) blink(static_cast<u8>(lights::carPartLit + i), 0, 0x0f);
+  if (lightState(lights::pitStopGoal) == 0xff) lightOn(lights::pitStopGoal);
+  for (u16 i = 0; i < w(var::curPlace); ++i) b(static_cast<u16>(var::lightStates + lights::place + i)) = 0xff;
+  row(var::lightStates + lights::place, 10, lights::place);
+  for (u16 n = static_cast<u16>(w(var::maxPlace) - w(var::curPlace)), light = static_cast<u16>(w(var::curPlace) + lights::place); n > 0; --n, ++light)
+    blink(static_cast<u8>(light), (light & 1) ? later(b(var::lightPhasePlace), 0x0f) : b(var::lightPhasePlace), 0x0f);
+  if (u16 n = w(var::curSpeed); n != 0) {
     if (n >= 0x0c) n = 0x0c;
-    for (u16 i = 0; i < n; ++i) b(static_cast<u16>(0x3655 + i)) = 0xff;
-    row(0x3655, 12, 0x38);
+    for (u16 i = 0; i < n; ++i) b(static_cast<u16>(var::lightStates + lights::speed + i)) = 0xff;
+    row(var::lightStates + lights::speed, 12, lights::speed);
   }
 }
 
-bool SpeedDevils::leftLanes() {
-  at24de();
-  addScore(0x464d, 0x09b2);
+bool SpeedDevils::hitBur() {
+  modeCountHit();
+  addScore(var::score, points::k7510);
   scored();
-  addBonus(0x09ca);
-  sfx(0x0a2a);
-  if (b(0x362d) != 0xff || b(0x362e) != 0xff || b(0x362f) != 0xff) return false;
-  at0225();
+  addBonus(points::k550);
+  sfx(sounds::hitTarget);
+  if (lightState(lights::bur) != 0xff || lightState(lights::bur + 1) != 0xff || lightState(lights::bur + 2) != 0xff) return false;
+  incJackpot();
   return true;
 }
 
-bool SpeedDevils::rightLanes() {
-  at24de();
+bool SpeedDevils::hitNin() {
+  modeCountHit();
   // (the original gives this row ten points and twenty of bonus more than the other;
   // amended: the two rows score alike)
-  addScore(0x464d, amended ? 0x09b2 : 0x09be);
+  addScore(var::score, amended ? points::k7510 : points::k7520);
   scored();
-  addBonus(amended ? 0x09ca : 0x09d6);
-  sfx(0x0a2a);
-  if (b(0x3630) != 0xff || b(0x3631) != 0xff || b(0x3632) != 0xff) return false;
-  at0225();
+  addBonus(amended ? points::k550 : points::k570);
+  sfx(sounds::hitTarget);
+  if (lightState(lights::nin) != 0xff || lightState(lights::nin + 1) != 0xff || lightState(lights::nin + 2) != 0xff) return false;
+  incJackpot();
   return true;
 }
 
-bool SpeedDevils::at1638() {
-  for (u16 a = 0x3633; a <= 0x3636; ++a)
+/// cs:1638: all four GEAR lights: two more places lit in the race, the next gear, and they
+/// flash. True if they were all lit.
+bool SpeedDevils::gear() {
+  for (u16 a = var::lightStates + lights::gear; a <= var::lightStates + lights::gear + 3; ++a)
     if (b(a) != 0xff) return false;
-  at17ad();
-  at16f0();
-  for (u16 a = 0x3633; a <= 0x3636; ++a) b(a) = 0;
-  for (u8 light = 0x16; light <= 0x19; ++light) blink(light, 0, 2);
-  addTimer(0x16b6);
-  award(0x05ae);
+  addPlaces();
+  nextGear();
+  for (u16 a = var::lightStates + lights::gear; a <= var::lightStates + lights::gear + 3; ++a) b(a) = 0;
+  for (u8 light = lights::gear; light <= lights::gear + 3; ++light) blink(light, 0, 2);
+  addTimer(timers::unblinkGearAll.routine);
+  award(awards::gear);
   return true;
 }
 
-void SpeedDevils::at16f0() {
-  const u16 n = w(0x1087);
+void SpeedDevils::nextGear() {
+  const u16 n = w(var::curGear);
   if (n == 5) {
-    w(0x1089) = 0x1e;
-    for (u8 light = 0x1a; light <= 0x1f; ++light) blink(light, 0, 1);
+    w(var::timeoutGearBlink) = 0x1e;
+    for (u8 light = lights::gearNum; light <= lights::gearNum + 5; ++light) blink(light, 0, 1);
     return;
   }
-  ++w(0x1087);
-  setLight(static_cast<u8>(n + 0x1a));
+  ++w(var::curGear);
+  setLight(static_cast<u8>(n + lights::gearNum));
 }
 
-void SpeedDevils::at1748() {
-  w(0x1087) = 0;
-  for (u8 light = 0x1a; light <= 0x1f; ++light) {
+void SpeedDevils::gearBlinkOver() {
+  w(var::curGear) = 0;
+  for (u8 light = lights::gearNum; light <= lights::gearNum + 5; ++light) {
     stopBlink(light);
     clearLight(light);
   }
-  if (b(0x361f) == 0xff) return;
-  blink(0x02, b(0x007a), 0x0f);
-  b(0x10ab) = 0;
-  b(0x361f) = 0xff;
+  if (lightState(lights::pitStopHoldBonus) == 0xff) return;
+  blink(lights::pitStopHoldBonus, b(var::lightPhasePlace), 0x0f);
+  b(var::keptUnread) = 0;
+  lightState(lights::pitStopHoldBonus) = 0xff;
 }
 
-void SpeedDevils::at17ad() {
-  const u16 n = w(0x107b);
+void SpeedDevils::addPlaces() {
+  const u16 n = w(var::maxPlace);
   if (n == 0x0a) {
-    award(0x0493);
+    award(awards::extraGear);
     return;
   }
-  blink(static_cast<u8>(n + 0x20), b(0x007a), 0x0f);
-  blink(static_cast<u8>(n + 0x21), later(b(0x007a), 0x0f), 0x0f);
-  w(0x107b) += 2;
+  blink(static_cast<u8>(n + lights::place), b(var::lightPhasePlace), 0x0f);
+  blink(static_cast<u8>(n + lights::place + 1), later(b(var::lightPhasePlace), 0x0f), 0x0f);
+  w(var::maxPlace) += 2;
 }
 
-void SpeedDevils::at17f1() {
-  const u16 n = w(0x1079);
-  if (w(0x107b) <= n) return;
-  ++w(0x1079);
-  stopBlink(static_cast<u8>(n + 0x20));
-  setLight(static_cast<u8>(n + 0x20));
-  award(0x05e6);
-  if (w(0x1079) != 0x0a) return;
-  blink(0x09, later(b(0x007a), 0x0f), 0x0f);
-  setLight(0x09);
-  blink(0x0f, b(0x007a), 0x0f);
-  setLight(0x0f);
-  w(0x1075) = 0x4b0;
-  award(0x0602);
+void SpeedDevils::gainPlace() {
+  const u16 n = w(var::curPlace);
+  if (w(var::maxPlace) <= n) return;
+  ++w(var::curPlace);
+  stopBlink(static_cast<u8>(n + lights::place));
+  setLight(static_cast<u8>(n + lights::place));
+  award(awards::overtake);
+  if (w(var::curPlace) != 0x0a) return;
+  blink(lights::pitStopGoal, later(b(var::lightPhasePlace), 0x0f), 0x0f);
+  setLight(lights::pitStopGoal);
+  blink(lights::miniRampJackpot, b(var::lightPhasePlace), 0x0f);
+  setLight(lights::miniRampJackpot);
+  w(var::timeoutJackpot) = 0x4b0;
+  award(awards::overtakeFinal);
 }
 
-void SpeedDevils::at186a() {
-  for (u8 light = 0x29; light >= 0x20; --light) clearLight(light);
-  w(0x1079) = 0;
-  w(0x107b) = 0;
-  if (b(0x33aa) == 0xff) addTimer(0x18be);
-  else at18db();
+void SpeedDevils::goal() {
+  for (u8 light = lights::place + 9; light >= lights::place; --light) clearLight(light);
+  w(var::curPlace) = 0;
+  w(var::maxPlace) = 0;
+  if (b(var::modeRunning) == 0xff) addTimer(timers::turbo);
+  else doTurbo();
 }
 
-void SpeedDevils::at18db() {
-  award(0x061e);
-  b(0x33aa) = 0xff;
-  b(0x10a8) = 0xff;
+void SpeedDevils::doTurbo() {
+  award(awards::turbo);
+  b(var::modeRunning) = 0xff;
+  b(var::modeRamp) = 0xff;
 }
 
-void SpeedDevils::at18ed() {
-  if (b(0x33aa) == 0xff) addTimer(0x1903);
-  else at1920();
+void SpeedDevils::offroad() {
+  if (b(var::modeRunning) == 0xff) addTimer(timers::offroad);
+  else doOffroad();
 }
 
-void SpeedDevils::at1920() {
-  b(0x3351) = 0;
-  music(0x0aa7);
-  b(0x33aa) = 0xff;
-  startScript(0x12bc);
-  b(0x10a7) = 0xff;
+void SpeedDevils::doOffroad() {
+  b(var::musicPriority) = 0;
+  music(tunes::modeHit);
+  b(var::modeRunning) = 0xff;
+  startScript(scripts::modeHit);
+  b(var::modeHit) = 0xff;
 }
 
-void SpeedDevils::at1b4f() {
-  for (u16 light = 0x32; light < 0x37; ++light)
-    if (b(static_cast<u16>(0x361d + light)) != 0xff) return;
-  for (u8 light = 0x32; light <= 0x36; ++light) clearLight(light);
-  for (u8 light = 0x32; light <= 0x36; ++light) stopBlink(light);
-  for (u8 light = 0x32; light <= 0x36; ++light) blink(light, 0, 1);
-  addTimer(0x1bd9);
-  w(0x10a1) = 0;
+void SpeedDevils::carModsAll() {
+  for (u16 light = lights::carPart; light < lights::carPart + 5; ++light)
+    if (b(static_cast<u16>(var::lightStates + light)) != 0xff) return;
+  for (u8 light = lights::carPart; light <= lights::carPart + 4; ++light) clearLight(light);
+  for (u8 light = lights::carPart; light <= lights::carPart + 4; ++light) stopBlink(light);
+  for (u8 light = lights::carPart; light <= lights::carPart + 4; ++light) blink(light, 0, 1);
+  addTimer(timers::unblinkCar.routine);
+  w(var::carMods) = 0;
 }
 
-bool SpeedDevils::at2031() {
-  at24de();
-  sfx(0x0a2a);
-  award(0x0690);
-  for (u16 light = 6; light < 9; ++light)
-    if (b(static_cast<u16>(0x361d + light)) != 0xff) return false;
-  if (w(0x1073) != 0) return false;
-  award(0x06ad);
-  if (static_cast<u8>(b(0x1078) + b(0x1077)) >= 8) {
-    award(0x0704);
-  } else if (++b(0x1077) == 1) {
-    b(0x3621) = 0xff;
-    blink(0x04, 0, 0x0a);
+bool SpeedDevils::rollPit() {
+  modeCountHit();
+  sfx(sounds::hitTarget);
+  award(awards::pit);
+  for (u16 light = lights::pit; light < lights::pit + 3; ++light)
+    if (b(static_cast<u16>(var::lightStates + light)) != 0xff) return false;
+  if (w(var::timeoutPitAll) != 0) return false;
+  award(awards::pitAll);
+  if (static_cast<u8>(b(var::mbActive) + b(var::mbPending)) >= 8) {
+    award(awards::million);
+  } else if (++b(var::mbPending) == 1) {
+    lightState(lights::offroadMultiBonus) = 0xff;
+    blink(lights::offroadMultiBonus, 0, 0x0a);
   }
-  for (u8 light = 6; light <= 8; ++light) blink(light, 0, 2);
-  w(0x1073) = 0x28;
+  for (u8 light = lights::pit; light <= lights::pit + 2; ++light) blink(light, 0, 2);
+  w(var::timeoutPitAll) = 0x28;
   return true;
 }
 
-void SpeedDevils::at219b() {
-  if (w(0x1083) != 0xff || w(0x1081) != 0xff || w(0x1085) != 0xff) return;
-  award(0x05ca);
-  w(0x1083) = 0;
-  w(0x1081) = 0;
-  w(0x1085) = 0;
-  const u8 light = static_cast<u8>(w(0x108b) + 0x38);
-  if (light & 1) at2201();
-  ++w(0x108b);
-  if (light < 0x43) setLight(light);
-  else lightOn(0x43);
+void SpeedDevils::pedalMetal() {
+  if (w(var::pedalMetal0) != 0xff || w(var::pedalMetal1) != 0xff || w(var::pedalMetalJump) != 0xff) return;
+  award(awards::pedalMetal);
+  w(var::pedalMetal0) = 0;
+  w(var::pedalMetal1) = 0;
+  w(var::pedalMetalJump) = 0;
+  const u8 light = static_cast<u8>(w(var::curSpeed) + lights::speed);
+  if (light & 1) lightCarPart();
+  ++w(var::curSpeed);
+  if (light < lights::speed + 11) setLight(light);
+  else lightOn(lights::speed + 11);
 }
 
-void SpeedDevils::at2201() {
-  if (w(0x10a1) == 5) return;
-  const u16 n = w(0x10a1);
-  ++w(0x10a1);
-  const u8 light = b(static_cast<u16>(0x108d + n * 4 + 2));
-  blink(light, b(0x007a), 0x0f);
+void SpeedDevils::lightCarPart() {
+  if (w(var::carMods) == 5) return;
+  const u16 n = w(var::carMods);
+  ++w(var::carMods);
+  const u8 light = b(static_cast<u16>(carParts::table + n * carParts::size + carParts::light));
+  blink(light, b(var::lightPhasePlace), 0x0f);
   setLight(light);
 }
 
-void SpeedDevils::at226b() {
-  at17f1();
-  award(0x0704);
-  w(0x1083) = 0xff;
-  w(0x1081) = 0xff;
+/// cs:226b: one miles ramp soon after the other: a place taken in the race, and towards the
+/// pedal to the metal.
+void SpeedDevils::overtake() {
+  gainPlace();
+  award(awards::million);
+  w(var::pedalMetal0) = 0xff;
+  w(var::pedalMetal1) = 0xff;
 }
 
 void SpeedDevils::threeDigits(u16 value, u16 at, bool blankHundreds) {
   for (int i = 2; i >= 0; --i) {
     u16 digit = value % 10;
     value /= 10;
-    if (blankHundreds && digit == 0 && i == 0) digit = 0xfff3;
+    if (blankHundreds && digit == 0 && i == 0) digit = 0xfff3;  // (kBlank, less kDigit0)
     b(static_cast<u16>(at + i)) = static_cast<u8>(digit + 0x37);
   }
 }
 
-/// cs:2281: a lap. The laps are counted, with awards at ten, twenty and at the two counts
-/// that move up twenty at a time, and the display's lines about them are made up.
-void SpeedDevils::at2281() {
-  at0225();
-  award(static_cast<u16>(0x0721 + (w(0x108b) > 0x0b ? 0x0b : w(0x108b)) * 0x1d));
-  if (b(0x10a8) == 0xff) {
-    award(0x0393);
-    at24f8();
+/// cs:2281: a trip up a miles ramp. The miles are counted, with awards at ten, twenty and at
+/// the two counts that move up twenty at a time, and the display's lines about them are made up.
+void SpeedDevils::bumpMiles() {
+  incJackpot();
+  award(static_cast<u16>(awards::miles + (w(var::curSpeed) > 0x0b ? 0x0b : w(var::curSpeed)) * awards::milesSize));
+  if (b(var::modeRamp) == 0xff) {
+    award(awards::turboRamp);
+    modeCountRamp();
   }
   do {
-    ++w(0x0056);
-    addScore(0x0058, 0x098e);
-  } while (w(0x0056) == 1);
-  const u16 laps = w(0x0056);
-  if (laps <= 0x14) {
-    if (laps > 0x0a) {
-      award(0x03e9);
-      if (laps == 0x14) {
-        blink(0x01, 0, 0x0f);
-        setLight(0x01);
-        award(0x04cb);
+    ++w(var::miles);
+    addScore(var::milesDigits, points::k1);
+  } while (w(var::miles) == 1);
+  const u16 miles = w(var::miles);
+  if (miles <= 0x14) {
+    if (miles > 0x0a) {
+      award(awards::milesToExtraBall);
+      if (miles == 0x14) {
+        blink(lights::pitLoopExtraBall, 0, 0x0f);
+        setLight(lights::pitLoopExtraBall);
+        award(awards::milesExtraBall);
       }
     }
-    if (laps == 0x0a) at18ed();
-    else if (laps < 0x0a) award(0x03cc);
+    if (miles == 0x0a) offroad();
+    else if (miles < 0x0a) award(awards::milesToFirstOffroad);
   }
-  if (laps == w(0x10a5)) {
-    w(0x10a5) += 0x14;
-    if (b(0x3622) != 0xff) {
-      setLight(0x05);
-      blink(0x05, 0, 0x0f);
-      award(0x0506);
+  if (miles == w(var::jumpAt)) {
+    w(var::jumpAt) += 0x14;
+    if (lightState(lights::miniRampJump) != 0xff) {
+      setLight(lights::miniRampJump);
+      blink(lights::miniRampJump, 0, 0x0f);
+      award(awards::milesJump);
     }
-  } else if (static_cast<u16>(w(0x10a5) - laps) < 0x0a) {
-    threeDigits(w(0x10a5), 0x1924, true);
-    award(0x03af);
+  } else if (static_cast<u16>(w(var::jumpAt) - miles) < 0x0a) {
+    threeDigits(w(var::jumpAt), text::milesToJump, true);
+    award(awards::milesToJump);
   }
-  if (static_cast<u16>(w(0x10a3) - w(0x0056)) <= 0x0a) {
-    if (w(0x0056) == w(0x10a3)) {
-      w(0x10a3) += 0x14;
-      at18ed();
+  if (static_cast<u16>(w(var::offroadAt) - w(var::miles)) <= 0x0a) {
+    if (w(var::miles) == w(var::offroadAt)) {
+      w(var::offroadAt) += 0x14;
+      offroad();
     }
-    threeDigits(w(0x10a3), 0x1937, true);
-    award(0x0406);
+    threeDigits(w(var::offroadAt), text::milesToOffroad, true);
+    award(awards::milesToOffroad);
   }
-  threeDigits(w(0x0056), 0x19b5, false);
-  for (u16 at = 0x19b5; b(at) == 0x37; ++at) b(at) = 0x2a;  // no noughts in front
+  threeDigits(w(var::miles), text::miles, false);
+  for (u16 at = text::miles; b(at) == 0x37; ++at) b(at) = 0x2a;  // no noughts in front
 }
 
-void SpeedDevils::at24de() {
-  if (b(0x10a7) != 0xff) return;
-  addScore(0x1373, 0x09e2);
-  b(0x33a7) = 0xff;
+void SpeedDevils::modeCountHit() {
+  if (b(var::modeHit) != 0xff) return;
+  addScore(var::modeHitScore, points::k100000b);
+  b(var::modeScored) = 0xff;
 }
 
-void SpeedDevils::at24f8() {
-  if (b(0x10a8) != 0xff) return;
-  addScore(0x1424, 0x09a6);
-  b(0x33a7) = 0xff;
+void SpeedDevils::modeCountRamp() {
+  if (b(var::modeRamp) != 0xff) return;
+  addScore(var::modeRampScore, points::k5000000);
+  b(var::modeScored) = 0xff;
 }
 
 void SpeedDevils::everyFrame() {
-  if (++b(0x007a) == 0x1e) b(0x007a) = 0;
+  if (++b(var::lightPhasePlace) == 0x1e) b(var::lightPhasePlace) = 0;
   struct Count { u16 at; void (SpeedDevils::*then)(); };
   auto lane = [this](u8 light) {
     stopBlink(light);
     lightOn(light);
-    row(0x3623, 3, 0x06);
+    row(var::lightStates + lights::pit, 3, lights::pit);
   };
   auto down = [this](u16 at) { return w(at) != 0 && --w(at) == 0; };
-  if (down(0x106d)) lane(0x08);
-  if (down(0x106f)) lane(0x07);
-  if (down(0x1071)) lane(0x06);
-  if (down(0x1073)) {  // cs:20d7
-    for (u8 light = 6; light <= 8; ++light) stopBlink(light);
-    for (u8 light = 6; light <= 8; ++light) clearLight(light);
-    row(0x3623, 3, 0x06);
+  if (down(var::timeoutPit2)) lane(lights::pit + 2);
+  if (down(var::timeoutPit1)) lane(lights::pit + 1);
+  if (down(var::timeoutPit0)) lane(lights::pit);
+  if (down(var::timeoutPitAll)) {  // cs:20d7
+    for (u8 light = lights::pit; light <= lights::pit + 2; ++light) stopBlink(light);
+    for (u8 light = lights::pit; light <= lights::pit + 2; ++light) clearLight(light);
+    row(var::lightStates + lights::pit, 3, lights::pit);
   }
-  down(0x107d);
-  down(0x107f);
-  if (down(0x1089)) at1748();
-  if (down(0x1075)) {  // cs:185f
-    clearLight(0x0f);
-    stopBlink(0x0f);
+  down(var::timeoutMilesRight);
+  down(var::timeoutMilesLeft);
+  if (down(var::timeoutGearBlink)) gearBlinkOver();
+  if (down(var::timeoutJackpot)) {  // cs:185f
+    clearLight(lights::miniRampJackpot);
+    stopBlink(lights::miniRampJackpot);
   }
 }
 
@@ -508,44 +528,48 @@ void SpeedDevils::bindRules() {
     });
   };
 
-  bindNative(0x11d1, [this] {  // out of the lane on to the table
-    w(0x2cfe) = 0;
-    b(0x331e) = 0;
+  bindNative(routines::plungerExit, [this] {  // out of the lane on to the table
+    w(var::ballVy) = 0;
+    b(var::layer) = 0;
   });
 
-  // the two rows of three lanes
-  struct Lane { u16 roll, busy, lit; u8 light; u16 timer, counter; bool left; };
-  for (const Lane l : {Lane{0x11de, 0x1067, 0x362d, 0x10, 0x120b, 0x366b, true}, {0x1236, 0x1068, 0x362e, 0x11, 0x1263, 0x366d, true},
-                       {0x128e, 0x1069, 0x362f, 0x12, 0x12bb, 0x366f, true}, {0x12e6, 0x106a, 0x3630, 0x13, 0x1313, 0x3671, false},
-                       {0x133e, 0x106b, 0x3631, 0x14, 0x136b, 0x3673, false}, {0x1396, 0x106c, 0x3632, 0x15, 0x13c3, 0x3675, false}}) {
-    bindNative(l.roll, [this, l] {
-      if (b(l.busy) == 0xff) return;
-      b(l.busy) = 0xff;
-      b(l.lit) = 0xff;
-      if (l.left ? leftLanes() : rightLanes()) {  // all three: they flash, and a light of the four above comes on
-        const u8 first = l.left ? 0x10 : 0x13;
-        const u16 busy = l.left ? 0x1067 : 0x106a;
+  // the two rows of three targets, BUR and NIN
+  struct Target { u16 hit, busy, lit; u8 light; u16 timer, counter; bool bur; };
+  for (const Target t : {Target{routines::bur0, var::blinkBur, var::lightStates + lights::bur, lights::bur, timers::unblinkBur0.routine, timers::unblinkBur0.counter, true},
+                         {routines::bur1, var::blinkBur + 1, var::lightStates + lights::bur + 1, lights::bur + 1, timers::unblinkBur1.routine, timers::unblinkBur1.counter, true},
+                         {routines::bur2, var::blinkBur + 2, var::lightStates + lights::bur + 2, lights::bur + 2, timers::unblinkBur2.routine, timers::unblinkBur2.counter, true},
+                         {routines::nin0, var::blinkNin, var::lightStates + lights::nin, lights::nin, timers::unblinkNin0.routine, timers::unblinkNin0.counter, false},
+                         {routines::nin1, var::blinkNin + 1, var::lightStates + lights::nin + 1, lights::nin + 1, timers::unblinkNin1.routine, timers::unblinkNin1.counter, false},
+                         {routines::nin2, var::blinkNin + 2, var::lightStates + lights::nin + 2, lights::nin + 2, timers::unblinkNin2.routine, timers::unblinkNin2.counter, false}}) {
+    bindNative(t.hit, [this, t] {
+      if (b(t.busy) == 0xff) return;
+      b(t.busy) = 0xff;
+      b(t.lit) = 0xff;
+      if (t.bur ? hitBur() : hitNin()) {  // all three: they flash, and a light of the four GEAR comes on
+        const u8 first = t.bur ? lights::bur : lights::nin;
+        const u16 busy = t.bur ? var::blinkBur : var::blinkNin;
         for (u16 i = 0; i < 3; ++i) b(static_cast<u16>(busy + i)) = 0xff;
         for (u8 i = 0; i < 3; ++i) blink(static_cast<u8>(first + i), 0, 1);
-        b(l.left ? 0x3635 : 0x3636) = 0xff;
-        addTimer(l.left ? 0x1436 : 0x14d9);
-        if (!at1638()) blink(l.left ? 0x18 : 0x19, 0, 1);
+        b(t.bur ? var::lightStates + lights::gear + 2 : var::lightStates + lights::gear + 3) = 0xff;
+        addTimer(t.bur ? timers::unblinkBurAll.routine : timers::unblinkNinAll.routine);
+        if (!gear()) blink(t.bur ? lights::gear + 2 : lights::gear + 3, 0, 1);
         return;
       }
-      blink(l.light, 0, 1);
-      addTimer(l.timer);
+      blink(t.light, 0, 1);
+      addTimer(t.timer);
     });
-    after(l.timer, l.counter, 0x0a, [this, l] {
-      stopBlink(l.light);
-      if (b(l.busy) == 0xff) {
-        lightOn(l.light);
-        b(l.busy) = 0;
+    after(t.timer, t.counter, 0x0a, [this, t] {  // unblinks the target's light
+      stopBlink(t.light);
+      if (b(t.busy) == 0xff) {
+        lightOn(t.light);
+        b(t.busy) = 0;
       }
       endTimer();
     });
   }
   struct Rows { u16 timer, counter; u8 light, first; u16 lit, busy; };
-  for (const Rows r : {Rows{0x1436, 0x3677, 0x18, 0x10, 0x362d, 0x1067}, {0x14d9, 0x3679, 0x19, 0x13, 0x3630, 0x106a}}) {
+  for (const Rows r : {Rows{timers::unblinkBurAll.routine, timers::unblinkBurAll.counter, lights::gear + 2, lights::bur, var::lightStates + lights::bur, var::blinkBur},
+                       {timers::unblinkNinAll.routine, timers::unblinkNinAll.counter, lights::gear + 3, lights::nin, var::lightStates + lights::nin, var::blinkNin}}) {
     after(r.timer, r.counter, 0x28, [this, r] {
       stopBlink(r.light);
       lightOn(r.light);
@@ -556,244 +580,246 @@ void SpeedDevils::bindRules() {
       endTimer();
     });
   }
-  after(0x16b6, 0x367b, 0x2d, [this] {
-    for (u8 light = 0x16; light <= 0x19; ++light) stopBlink(light);
-    for (u8 light : {u8{0x18}, u8{0x19}, u8{0x16}, u8{0x17}}) lightOff(light);
+  after(timers::unblinkGearAll.routine, timers::unblinkGearAll.counter, 0x2d, [this] {
+    for (u8 light = lights::gear; light <= lights::gear + 3; ++light) stopBlink(light);
+    for (u8 light : {u8{lights::gear + 2}, u8{lights::gear + 3}, lights::gear, u8{lights::gear + 1}}) lightOff(light);
     endTimer();
   });
-  bindNative(0x18be, [this] {
-    if (b(0x3396) != 0xff) {
-      if (b(0x33aa) == 0xff) return;
-      at18db();
+  bindNative(timers::turbo, [this] {
+    if (b(var::betweenBalls) != 0xff) {
+      if (b(var::modeRunning) == 0xff) return;
+      doTurbo();
     }
     endTimer();
   });
-  bindNative(0x1903, [this] {
-    if (b(0x3396) != 0xff) {
-      if (b(0x33aa) == 0xff) return;
-      at1920();
+  bindNative(timers::offroad, [this] {
+    if (b(var::betweenBalls) != 0xff) {
+      if (b(var::modeRunning) == 0xff) return;
+      doOffroad();
     }
     endTimer();
   });
 
-  bindNative(0x193e, [this] {  // the pit
+  bindNative(routines::pitStopTrigger, [this] {  // the pit
     bool pitStop = false;
-    if (b(0x3620) == 0xff) {
-      stopBlink(0x03);
-      clearLight(0x03);
-      if (b(0x3626) == 0xff) {
-        award(0x045b);
+    if (lightState(lights::pitStopSuperJackpot) == 0xff) {
+      stopBlink(lights::pitStopSuperJackpot);
+      clearLight(lights::pitStopSuperJackpot);
+      if (lightState(lights::pitStopGoal) == 0xff) {
+        award(awards::superJackpotGoal);
         pitStop = true;
       } else {
-        b(0x33bf) = 0xff;
-        b(0x3351) = 0;
-        awardAlways(0x0423);
+        b(var::countdownHeld) = 0xff;
+        b(var::musicPriority) = 0;
+        awardAlways(awards::superJackpot);
       }
     }
     if (!pitStop) {
-      if (b(0x3626) == 0xff) {
-        stopBlink(0x09);
-        clearLight(0x09);
-        at186a();
+      if (lightState(lights::pitStopGoal) == 0xff) {
+        stopBlink(lights::pitStopGoal);
+        clearLight(lights::pitStopGoal);
+        goal();
       }
-      if (b(0x361f) == 0xff) {
-        award(0x0477);
-        stopBlink(0x02);
-        clearLight(0x02);
-        b(0x10aa) = 0xff;
+      if (lightState(lights::pitStopHoldBonus) == 0xff) {
+        award(awards::holdBonus);
+        stopBlink(lights::pitStopHoldBonus);
+        clearLight(lights::pitStopHoldBonus);
+        b(var::holdBonus) = 0xff;
       }
     }
     // The original keeps the ball a third of a second (two and a half for the greatest
     // prize) and then a second more, unless a mode's clock is running. Amended: a third of a
     // second, or a second and a third while a mode's clock runs; two and a half for the prize.
-    pitWait_ = pitStop ? 0x96 : b(0x33aa) == 0xff ? 0x50 : 0x14;
-    if (b(0x10a9) != 0xff) addTimer(pitStop ? 0x1a29 : 0x19d1);
+    pitWait_ = pitStop ? 0x96 : b(var::modeRunning) == 0xff ? 0x50 : 0x14;
+    if (b(var::pitStopHeld) != 0xff) addTimer(pitStop ? timers::pitStopLong.routine : timers::pitStop.routine);  // (nothing sets it)
   });
-  bindNative(0x19d1, [this] {
+  bindNative(timers::pitStop.routine, [this] {
     hold();
-    if (!countTo(0x367d, amended ? pitWait_ : 0x14)) return;
-    amended ? addTimerNow(0x1a81) : addTimer(0x1a81);
+    if (!countTo(timers::pitStop.counter, amended ? pitWait_ : 0x14)) return;
+    amended ? addTimerNow(timers::pitEject.routine) : addTimer(timers::pitEject.routine);
     endTimer();
   });
-  bindNative(0x1a29, [this] {
+  bindNative(timers::pitStopLong.routine, [this] {
     hold();
-    if (!countTo(0x367f, 0x96)) return;
-    amended ? addTimerNow(0x1a81) : addTimer(0x1a81);
+    if (!countTo(timers::pitStopLong.counter, 0x96)) return;
+    amended ? addTimerNow(timers::pitEject.routine) : addTimer(timers::pitEject.routine);
     endTimer();
   });
-  bindNative(0x1a81, [this] {
+  bindNative(timers::pitEject.routine, [this] {
     hold();
-    if (!amended && b(0x33aa) != 0xff && !countTo(0x3681, 0x3c)) return;
-    sfx(0x0a0e);
+    if (!amended && b(var::modeRunning) != 0xff && !countTo(timers::pitEject.counter, 0x3c)) return;
+    sfx(sounds::ejectPit);
     hold();
-    b(0x2d3a) = 0;
-    w(0x2cfe) = 0x320;
-    w(0x2cfc) = 0xf7cc;
-    addTimer(0x1b38);
+    b(var::ballHidden) = 0;
+    w(var::ballVy) = 0x320;
+    w(var::ballVx) = 0xf7cc;
+    addTimer(timers::pitDone.routine);
     endTimer();
   });
-  after(0x1b38, 0x3683, 0x3c, [this] {
-    b(0x10a9) = 0;
+  after(timers::pitDone.routine, timers::pitDone.counter, 0x3c, [this] {
+    b(var::pitStopHeld) = 0;
     endTimer();
   });
-  after(0x1bd9, 0x3685, 0x78, [this] {
-    for (u8 light = 0x32; light <= 0x36; ++light) stopBlink(light);
+  after(timers::unblinkCar.routine, timers::unblinkCar.counter, 0x78, [this] {
+    for (u8 light = lights::carPart; light <= lights::carPart + 4; ++light) stopBlink(light);
     endTimer();
   });
 
-  // a gear's light taken: its place in the row of five blinks
-  auto gear = [this](u16 lit, u8 light, u16 record, u16 flag, u8 rowLight, bool outOfStep) {
+  // a car part's light taken: its light in the row of five blinks
+  auto carMod = [this](u16 lit, u8 light, u16 record, u16 flag, u8 rowLight, bool outOfStep) {
     if (b(lit) != 0xff) return;
     clearLight(light);
     stopBlink(light);
     award(record);
     b(flag) = 0xff;
-    blink(rowLight, outOfStep ? later(b(0x007a), 0x0f) : b(0x007a), 0x0f);
-    at1b4f();
+    blink(rowLight, outOfStep ? later(b(var::lightPhasePlace), 0x0f) : b(var::lightPhasePlace), 0x0f);
+    carModsAll();
   };
-  bindNative(0x1c04, [=, this] {
-    if (b(0x10a8) == 0xff) {
-      award(0x0393);
-      at24f8();
+  bindNative(routines::rampOffroad, [=, this] {  // the off road ramp
+    if (b(var::modeRamp) == 0xff) {
+      award(awards::turboRamp);
+      modeCountRamp();
     }
-    award(0x06e6);
-    gear(0x3628, 0x0b, 0x0522, 0x364f, 0x32, true);
-    gear(0x3629, 0x0c, 0x0576, 0x3650, 0x33, false);
-    if (b(0x3621) == 0xff) {  // cs:1cd0
-      ++b(0x2047);
-      ++b(0x1078);
-      ++b(0x095d);
-      if (--b(0x1077) == 0) {
-        clearLight(0x04);
-        stopBlink(0x04);
+    award(awards::rampOffroad);
+    carMod(var::lightStates + lights::carPartLit0, lights::carPartLit0, awards::car0, var::lightStates + lights::carPart0, lights::carPart0, true);
+    carMod(var::lightStates + lights::carPartLit3, lights::carPartLit3, awards::car3, var::lightStates + lights::carPart3, lights::carPart3, false);
+    if (lightState(lights::offroadMultiBonus) == 0xff) {  // cs:1cd0
+      ++b(text::multiplier);
+      ++b(var::mbActive);
+      ++b(var::bonusMultiplier);
+      if (--b(var::mbPending) == 0) {
+        clearLight(lights::offroadMultiBonus);
+        stopBlink(lights::offroadMultiBonus);
       }
-      u16 n = 0, record = 0x087d;
-      while (n < 7 && b(static_cast<u16>(0x3647 + n)) != 0) {
+      u16 n = 0, record = awards::mb;
+      while (n < 7 && b(static_cast<u16>(var::lightStates + lights::bonus + n)) != 0) {
         ++n;
-        record = static_cast<u16>(record + 0x1c);
+        record = static_cast<u16>(record + awards::mbSize);
       }
       award(record);
-      b(static_cast<u16>(0x3647 + n)) = 0xff;
-      lightOn(static_cast<u8>(n + 0x2a));
+      b(static_cast<u16>(var::lightStates + lights::bonus + n)) = 0xff;
+      lightOn(static_cast<u8>(n + lights::bonus));
     }
-    b(0x3634) = 0xff;
-    at0225();
-    if (at1638()) return;
-    blink(0x17, 0, 1);
-    addTimer(0x1cb4);
+    lightState(lights::gear + 1) = 0xff;
+    incJackpot();
+    if (gear()) return;
+    blink(lights::gear + 1, 0, 1);
+    addTimer(timers::unblinkGear1.routine);
   });
-  after(0x1cb4, 0x3687, 0x0a, [this] {
-    stopBlink(0x17);
-    lightOn(0x17);
+  after(timers::unblinkGear1.routine, timers::unblinkGear1.counter, 0x0a, [this] {
+    stopBlink(lights::gear + 1);
+    lightOn(lights::gear + 1);
     endTimer();
   });
-  bindNative(0x1d1f, [=, this] {
-    if (w(0x331c) == 0x1ec5) {
-      gear(0x362b, 0x0e, 0x055a, 0x3651, 0x34, true);
-      gear(0x3627, 0x0a, 0x0592, 0x3653, 0x36, false);
-      if (b(0x361e) == 0xff) {
-        award(0x04af);
-        clearLight(0x01);
-        stopBlink(0x01);
-        setLight(0x37);
-        ++b(0x0071);
+  bindNative(routines::pitLoopJump, [=, this] {  // the pit loop, or the jump
+    if (w(var::lastTrigger) == routines::pitLoopPre) {
+      carMod(var::lightStates + lights::carPartLit2, lights::carPartLit2, awards::car2, var::lightStates + lights::carPart2, lights::carPart2, true);
+      carMod(var::lightStates + lights::carPartLit4, lights::carPartLit4, awards::car4, var::lightStates + lights::carPart4, lights::carPart4, false);
+      if (lightState(lights::pitLoopExtraBall) == 0xff) {
+        award(awards::extraBall);
+        clearLight(lights::pitLoopExtraBall);
+        stopBlink(lights::pitLoopExtraBall);
+        setLight(lights::extraBall);
+        ++b(var::extraBalls);
       }
       return;
     }
-    if (w(0x331c) != 0x1ec6) return;
-    if (b(0x10a8) == 0xff) {
-      award(0x0393);
-      at24f8();
+    if (w(var::lastTrigger) != routines::jumpPre) return;
+    if (b(var::modeRamp) == 0xff) {
+      award(awards::turboRamp);
+      modeCountRamp();
     }
-    at0225();
-    if (b(0x362c) == 0xff) {
-      addScore(0x464d, 0x096a);
-      at0217();
-      if (b(0x10a8) == 0xff) {
-        b(0x3351) = 0;
-        awardAlways(0x043f);
-        b(0x33bf) = 0xff;
+    incJackpot();
+    if (lightState(lights::miniRampJackpot) == 0xff) {
+      addScore(var::score, var::jackpot);
+      resetJackpot();
+      if (b(var::modeRamp) == 0xff) {
+        b(var::musicPriority) = 0;
+        awardAlways(awards::jackpot);
+        b(var::countdownHeld) = 0xff;
       } else {
-        award(0x043f);
+        award(awards::jackpot);
       }
-      clearLight(0x0f);
-      stopBlink(0x0f);
-      setLight(0x03);
-      blink(0x03, b(0x007a), 0x0f);
-      addTimer(0x1ea9);
+      clearLight(lights::miniRampJackpot);
+      stopBlink(lights::miniRampJackpot);
+      setLight(lights::pitStopSuperJackpot);
+      blink(lights::pitStopSuperJackpot, b(var::lightPhasePlace), 0x0f);
+      addTimer(timers::resetSuperJackpot.routine);
     }
-    if (b(0x3622) == 0xff) {
-      award(0x04ea);
-      clearLight(0x05);
-      stopBlink(0x05);
+    if (lightState(lights::miniRampJump) == 0xff) {
+      award(awards::jump);
+      clearLight(lights::miniRampJump);
+      stopBlink(lights::miniRampJump);
     }
-    gear(0x362a, 0x0d, 0x053e, 0x3652, 0x35, false);
-    w(0x1085) = 0xff;
-    at219b();
-    b(0x3633) = 0xff;
-    at0225();
-    if (at1638()) return;
-    blink(0x16, 0, 1);
-    addTimer(0x1ec7);
+    carMod(var::lightStates + lights::carPartLit1, lights::carPartLit1, awards::car1, var::lightStates + lights::carPart1, lights::carPart1, false);
+    w(var::pedalMetalJump) = 0xff;
+    pedalMetal();
+    lightState(lights::gear) = 0xff;
+    incJackpot();
+    if (gear()) return;
+    blink(lights::gear, 0, 1);
+    addTimer(timers::unblinkGear0.routine);
   });
-  after(0x1ea9, 0x3689, 0x4b0, [this] {
-    stopBlink(0x03);
-    clearLight(0x03);
+  after(timers::resetSuperJackpot.routine, timers::resetSuperJackpot.counter, 0x4b0, [this] {
+    stopBlink(lights::pitStopSuperJackpot);
+    clearLight(lights::pitStopSuperJackpot);
     endTimer();
   });
-  bindNative(0x1ec5, [] {});
-  bindNative(0x1ec6, [] {});
-  after(0x1ec7, 0x368b, 0x0a, [this] {
-    stopBlink(0x16);
-    lightOn(0x16);
+  bindNative(routines::pitLoopPre, [] {});
+  bindNative(routines::jumpPre, [] {});
+  after(timers::unblinkGear0.routine, timers::unblinkGear0.counter, 0x0a, [this] {
+    stopBlink(lights::gear);
+    lightOn(lights::gear);
     endTimer();
   });
 
-  // the three lanes at the bottom
+  // the three PIT lanes at the bottom
   struct Bottom { u16 roll, wait, lit; u8 light; bool lightFirst; };
-  for (const Bottom l : {Bottom{0x1ee3, 0x106d, 0x3625, 0x08, false}, {0x1f4f, 0x106f, 0x3624, 0x07, true}, {0x1fc0, 0x1071, 0x3623, 0x06, true}}) {
+  for (const Bottom l : {Bottom{routines::pit2, var::timeoutPit2, var::lightStates + lights::pit + 2, lights::pit + 2, false},
+                         {routines::pit1, var::timeoutPit1, var::lightStates + lights::pit + 1, lights::pit + 1, true},
+                         {routines::pit0, var::timeoutPit0, var::lightStates + lights::pit, lights::pit, true}}) {
     bindNative(l.roll, [this, l] {
       if (w(l.wait) != 0) return;
       if (l.lightFirst) lightOn(l.light);
       b(l.lit) = 0xff;
-      if (at2031()) return;
+      if (rollPit()) return;
       w(l.wait) = 0x14;
       blink(l.light, 0, 1);
     });
   }
-  bindNative(0x212f, [this] { award(0x0657); });
-  bindNative(0x2136, [this] {
-    sfx(0x0a1a);
-    award(0x0673);
+  bindNative(routines::laneOuter, [this] { award(awards::laneOuter); });
+  bindNative(routines::laneInner, [this] {
+    sfx(sounds::inlane);
+    award(awards::laneInner);
   });
-  bindNative(0x2151, [this] { award(0x06c9); });
-  bindNative(0x2158, [this] {  // the ball came back down the lane: it is given again
-    if (w(0x331c) != 0x11d1) return;
-    b(0x33ab) = 0;
-    music(0x0a44);
-    b(0x2119) = 1;
-    startScript(0x12a4);
-    b(0x33a8) = 0;
-    b(0x10ad) = 0;
-    b(0x3352) = 0;
+  bindNative(routines::offroadExit, [this] { award(awards::offroadExit); });
+  bindNative(routines::enter, [this] {  // the ball came back down the lane: it is given again
+    if (w(var::lastTrigger) != routines::plungerExit) return;
+    b(var::playersMayJoin) = 0;
+    music(tunes::main);
+    b(var::musicNext) = 1;
+    startScript(scripts::main);
+    b(var::ballUntouched) = 0;
+    b(var::specialPlungerEvent) = 0;
+    b(var::ballOnPlunger) = 0;
   });
-  bindNative(0x218d, [this] { b(0x3352) = 0; });
-  bindNative(0x2194, [this] { b(0x3352) = 0xff; });
-  bindNative(0x2231, [this] {
-    w(0x107d) = 0x186;
-    if (w(0x107f) != 0) {
-      w(0x107f) = 0;
-      at226b();
+  bindNative(routines::plungerGo, [this] { b(var::ballOnPlunger) = 0; });
+  bindNative(routines::plungerBottom, [this] { b(var::ballOnPlunger) = 0xff; });
+  bindNative(routines::rampMilesRight, [this] {  // the right miles ramp
+    w(var::timeoutMilesRight) = 0x186;
+    if (w(var::timeoutMilesLeft) != 0) {
+      w(var::timeoutMilesLeft) = 0;
+      overtake();
     }
-    at2281();
+    bumpMiles();
   });
-  bindNative(0x224e, [this] {
-    w(0x107f) = 0x186;
-    if (w(0x107d) != 0) {
-      w(0x107d) = 0;
-      at226b();
+  bindNative(routines::rampMilesLeft, [this] {  // the left
+    w(var::timeoutMilesLeft) = 0x186;
+    if (w(var::timeoutMilesRight) != 0) {
+      w(var::timeoutMilesRight) = 0;
+      overtake();
     }
-    at2281();
+    bumpMiles();
   });
 }
 
@@ -801,112 +827,112 @@ void SpeedDevils::bindRules() {
 void SpeedDevils::bindSteps() {
   auto arg = [this](u16 n) { return nativeW(static_cast<u16>(bx + n)); };
   auto wait1 = [this] {
-    w(0x33b1) = 1;
-    w(0x33af) = 0x4a84;
+    w(var::taskState) = 1;
+    w(var::task) = code::waitTask;
   };
-  bindNative(0x0602, [this] {
-    stopBlink(0x09);
-    clearLight(0x09);
-    at186a();
-    goTo(0x138f);
+  bindNative(routines::startTurbo, [this] {  // turbo begins
+    stopBlink(lights::pitStopGoal);
+    clearLight(lights::pitStopGoal);
+    goal();
+    goTo(scripts::modeRamp);
   });
-  bindNative(0x0618, [this] {
-    if (b(0x33bf) != 0xff) return nextStep(4);
-    b(0x33bf) = 0;
-    bx = 0x137f;
-    w(0x33ad) = bx;
-    b(0x10a8) = 0xff;
+  bindNative(routines::checkTurboCont, [this] {  // turbo's count-down goes on, if a jackpot held it
+    if (b(var::countdownHeld) != 0xff) return nextStep(4);
+    b(var::countdownHeld) = 0;
+    bx = scripts::modeRampContinue;
+    w(var::nextStep) = bx;
+    b(var::modeRamp) = 0xff;
     call(nativeW(bx));
   });
-  bindNative(0x06f6, [=, this] {
+  bindNative(routines::clearFlagMode, [=, this] {  // the mode is over
     wait1();
-    b(0x33aa) = 0;
-    b(0x3351) = 0;
+    b(var::modeRunning) = 0;
+    b(var::musicPriority) = 0;
     nextStep(4);
   });
-  bindNative(0x0711, [this] {  // the match begins (and its pace is set a first time)
-    nativeCW(0x07e2) = high() ? 0x0d : 0x0b;
-    call(F(0x07e5));
+  bindNative(routines::match, [this] {  // the match begins (and its pace is set a first time)
+    nativeCW(cvar::matchPace) = high() ? 0x0d : 0x0b;
+    call(F(at::match));
   });
-  bindNative(0x2535, [=, this] {
-    b(0x1d92) = static_cast<u8>(b(0x37b1) + 0x37);
-    wait1();
-    nextStep(4);
-  });
-  bindNative(0x2550, [=, this] {
-    b(0x1da9) = static_cast<u8>(b(0x37b1) + 0x37);
+  bindNative(routines::setupPartyOn, [=, this] {
+    b(text::partyOnPlayer) = static_cast<u8>(b(var::player) + 0x37);
     wait1();
     nextStep(4);
   });
-  bindNative(0x256b, [this] { nextStep(4); });  // (the original rings the PC's bell here)
-  bindNative(0x4acb, [] {});
-  bindNative(0x2578, [this] {
-    b(0x10ad) = 0xff;
-    w(0x33b1) = 1;
-    w(0x33af) = 0x4acb;
-    nextStep(4);
-  });
-  bindNative(0x258c, [=, this] {
+  bindNative(routines::setupShootAgain, [=, this] {
+    b(text::shootAgainPlayer) = static_cast<u8>(b(var::player) + 0x37);
     wait1();
     nextStep(4);
   });
-  bindNative(0x259b, [this] {
-    w(0x33af) = 0x25aa;
-    w(0x33b1) = 0x2c;
+  bindNative(routines::bell, [this] { nextStep(4); });  // (the original rings the PC's bell here)
+  bindNative(code::nothingTask, [] {});
+  bindNative(routines::setSpecialPlungerEvent, [this] {
+    b(var::specialPlungerEvent) = 0xff;
+    w(var::taskState) = 1;
+    w(var::task) = code::nothingTask;
     nextStep(4);
   });
-  bindNative(0x25aa, [this] { si = b(0x33ab) == 0xff ? 0x22 : 0; });
-  bindNative(0x25bd, [=, this] {  // go elsewhere if a score is nought
+  bindNative(routines::noop, [=, this] {
+    wait1();
+    nextStep(4);
+  });
+  bindNative(routines::waitWhileGameStarting, [this] {
+    w(var::task) = code::gameStartingTask;
+    w(var::taskState) = 0x2c;
+    nextStep(4);
+  });
+  bindNative(code::gameStartingTask, [this] { si = b(var::playersMayJoin) == 0xff ? 0x22 : 0; });
+  bindNative(routines::jccScoreZero, [=, this] {  // go elsewhere if a score is nought
     bool nought = true;
     for (u16 i = 0; i < 12; ++i)
       if (nativeB(static_cast<u16>(arg(2) + i)) != 0) nought = false;
     bx = nought ? arg(4) : static_cast<u16>(bx + 6);
     if (nativeW(bx) == 0) {
-      w(0x33ad) = 0;
+      w(var::nextStep) = 0;
       return;
     }
-    w(0x33ad) = bx;
+    w(var::nextStep) = bx;
     call(nativeW(bx));
   });
-  bindNative(0x2602, [=, this] {  // the bonus times its multiplier
-    for (u16 i = 0; i < 12; ++i) b(static_cast<u16>(0x095e + i)) = b(static_cast<u16>(0x3361 + i));
-    for (u8 n = static_cast<u8>(b(0x095d) - 1); n > 0; --n) addScore(0x3361, 0x095e);
-    b(0x1dd1) = static_cast<u8>(b(0x095d) + 0x37);
+  bindNative(routines::multiplyBonus, [=, this] {  // the bonus times its multiplier
+    for (u16 i = 0; i < 12; ++i) b(static_cast<u16>(var::bonusOnce + i)) = b(static_cast<u16>(var::bonus + i));
+    for (u8 n = static_cast<u8>(b(var::bonusMultiplier) - 1); n > 0; --n) addScore(var::bonus, var::bonusOnce);
+    b(text::bonusTimes) = static_cast<u8>(b(var::bonusMultiplier) + 0x37);
     wait1();
     nextStep(4);
   });
-  bindNative(0x2644, [=, this] {
-    if (b(0x095d) != 1) {
+  bindNative(routines::jccNoBonusMult, [=, this] {  // go elsewhere if there is no multiplier
+    if (b(var::bonusMultiplier) != 1) {
       wait1();
       nextStep(4);
       return;
     }
     goTo(arg(2));
   });
-  bindNative(0x2668, [=, this] { goTo(arg(2)); });
-  bindNative(0x2674, [=, this] {
+  bindNative(routines::jump, [=, this] { goTo(arg(2)); });
+  bindNative(routines::accBonusModeHit, [=, this] {
     wait1();
-    addScore(0x3361, 0x1373);
+    addScore(var::bonus, var::modeHitScore);
     nextStep(2);
   });
-  bindNative(0x269e, [=, this] {
+  bindNative(routines::accBonusModeRamp, [=, this] {
     wait1();
-    addScore(0x3361, 0x1424);
+    addScore(var::bonus, var::modeRampScore);
     nextStep(2);
   });
-  bindNative(0x26c8, [=, this] {
-    for (u16 i = 0; i < 12; ++i) b(static_cast<u16>(0x0064 + i)) = 0;
+  bindNative(routines::accBonusCyclones, [=, this] {  // the miles into the bonus
+    for (u16 i = 0; i < 12; ++i) b(static_cast<u16>(var::milesBonus + i)) = 0;
     wait1();
-    u32 times = w(0x0056);
+    u32 times = w(var::miles);
     if (times == 0) times = 0x10000;  // as the original's loop does with a count of nought
-    for (u32 i = 0; i < times; ++i) addScore(0x0064, 0x099a);
-    addScore(0x3361, 0x0064);
+    for (u32 i = 0; i < times; ++i) addScore(var::milesBonus, points::k100000);
+    addScore(var::bonus, var::milesBonus);
     nextStep(2);
   });
-  bindNative(0x277e, [=, this] {
+  bindNative(routines::extraBall, [=, this] {  // an extra ball
     wait1();
-    setLight(0x37);
-    ++b(0x0071);
+    setLight(lights::extraBall);
+    ++b(var::extraBalls);
     nextStep(4);
   });
 }
