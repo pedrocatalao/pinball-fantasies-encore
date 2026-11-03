@@ -12,6 +12,90 @@
 
 namespace encore {
 
+/// A flipper's record (at::flippers, one after another, a side of 0 ends them), by where each
+/// thing is in it; the names after pfr's reading of them (assets/table/flippers.rs).
+namespace flipperRec {
+constexpr u16 size = 0x3c;
+constexpr u16 side = 0x00;  ///< byte: 1 the right flipper's key, 2 the left's
+constexpr u16 pictureStamped = 0x01;  ///< byte: the picture last put into the collision mask
+constexpr u16 x = 0x02, y = 0x04;  ///< where its box is on the playfield (pfr: rect_pos)
+constexpr u16 width = 0x06;  ///< in sixteens of dots
+constexpr u16 rows = 0x08;
+constexpr u16 ballXMin = 0x0a, ballXMax = 0x0c, ballYMin = 0x0e, ballYMax = 0x10;  ///< pfr: ball_bbox
+constexpr u16 originX = 0x12, originY = 0x14;  ///< what it turns round (pfr: origin)
+constexpr u16 upright = 0x16;  ///< ff: it stands upright (pfr: is_vertical)
+constexpr u16 maskStep = 0x18;  ///< bytes of its mask from one picture to the next
+constexpr u16 speed = 0x1a, position = 0x1c, picture = 0x1e;  ///< as it moves
+constexpr u16 lastPicture = 0x20;  ///< pfr: quantum_max
+constexpr u16 lastPosition = 0x22;  ///< pfr: pos_max
+constexpr u16 accelHeld = 0x24, accelLetGo = 0x26;  ///< added to the speed each step (pfr: accel_press, accel_release)
+constexpr u16 speedHeldMax = 0x28;  ///< the speed held does not pass (pfr: speed_press_start)
+constexpr u16 pictureDrawn = 0x2c;  ///< the picture as last drawn
+constexpr u16 backLists = 0x30;  ///< the lists that turn it back, walked down from here
+constexpr u16 drawnAt = 0x34;  ///< where in video memory it was last drawn
+constexpr u16 lists = 0x36;  ///< and those that turn it on, each listSize long (pfr: copy_list_ptr)
+constexpr u16 listSize = 0x38;  ///< pfr: copy_list_stride
+constexpr u16 masks = 0x3a;  ///< the segment of its pictures for the collision mask
+}  // namespace flipperRec
+
+/// The video card's memory as the tables lay it out: the display at the top, then the table's
+/// picture, 0x54 bytes a row (80 shown and 4 spare), then the plunger and the masks' copies.
+namespace video {
+constexpr u16 picture = 0x0ad4;  ///< where the table's picture begins
+constexpr u16 pictureEnd = 0xc7d4;  ///< and where it ends
+constexpr u16 firstRowSpare = 0x0b24;  ///< the spare bytes at the end of the picture's first row
+constexpr u16 plungerRowBytes = 0x150;  ///< the clean row past the picture, under the plunger
+constexpr u16 rampsMaskBytes = 0x13ec;  ///< a copy of one of the ramps' masks, in each plane
+constexpr u16 groundTopBytes = 0x23f0;  ///< the playfield's slopes: its top rows, kept in the rows' spare bytes,
+constexpr u16 groundRestBytes = 0x0d84;  ///< and the rest, after the ramps' copies
+}  // namespace video
+
+/// A box on the playfield and what it leads to: an entry of the bumpers', the kickers' and the
+/// triggers' lists (an x of ffff ends them).
+namespace zoneRec {
+constexpr u16 size = 10;
+constexpr u16 xMin = 0, yMin = 2, xMax = 4, yMax = 6;
+constexpr u16 then = 8;  ///< the routine to run, or (a bumper's, a kicker's) its award
+}  // namespace zoneRec
+
+/// A light that blinks (at::blinks, one slot after another).
+namespace blinkRec {
+constexpr u16 size = 4;
+constexpr u16 light = 0;  ///< 0: the slot is free
+constexpr u16 count = 1;  ///< from where in the period it began
+constexpr u16 halfPeriod = 2, period = 3;
+}  // namespace blinkRec
+
+/// An entry of the lights' show while nobody plays (at::attractLightList, an ffff count ends it).
+namespace attractRec {
+constexpr u16 size = 10;
+constexpr u16 count = 0, restart = 2;  ///< words: the count, and where it starts again
+constexpr u16 offAt = 4, onAt = 6;  ///< words: the counts at which the light goes out and comes on
+constexpr u16 light = 8;
+}  // namespace attractRec
+
+/// A light's record (at::lightRecords): its first palette entry, how many bytes of colour,
+/// then the colours lit, three bytes to an entry.
+namespace lightRec {
+constexpr u16 firstColour = 0, bytes = 1, colours = 2;
+}  // namespace lightRec
+
+/// A sound effect's record (pfr's Sfx): the sample, its note, then the channel less one at 3.
+namespace soundRec {
+constexpr u16 sample = 0, note = 1, channel = 3;
+}  // namespace soundRec
+
+/// A tune's record (pfr's Jingle): where in the song, how many times, at what priority.
+namespace tuneRec {
+constexpr u16 place = 0, repeats = 1, priority = 2;
+}  // namespace tuneRec
+
+/// An award's record (Engine::award), from after its tune: the score, the bonus (12 digits
+/// each) and the display's script.
+namespace awardRec {
+constexpr u16 score = 0, bonus = 12, script = 24;
+}  // namespace awardRec
+
 /// What a table asks of the sound driver (the original's int 66h). The default is the game's
 /// own silent driver, NOSOUND.SDR: it plays nothing and answers 0.
 class SoundDriver {
@@ -105,7 +189,7 @@ class Engine : public Program {
   /// game is played.)
   void showAsNow() {
     for (int which = 0; which < 3; ++which) drawFlipper(which);
-    if (!std::exchange(ballDrawn_, false) && (B(at::ballHidden) == 0xff || B(0x3713) == 0xff)) return;
+    if (!std::exchange(ballDrawn_, false) && (B(at::ballHidden) == 0xff || B(at::attract) == 0xff)) return;
     shown_.ballX = W(at::ballX).s();
     shown_.ballY = static_cast<i16>(W(at::ballY) + (B(at::ballHidden) == 0xff ? 0 : W(at::nudgeLift)));
     shown_.ramps = B(at::layer) != 0;
@@ -128,7 +212,7 @@ class Engine : public Program {
   /// How quickly the screen follows the ball: 0 hard, 1 medium, 2 soft.
   void setScrolling(u8 scrolling);
   void toggleMusic() { musicKey(); }
-  bool musicIsOff() { return B(0x231a) != 0; }
+  bool musicIsOff() { return B(at::musicOff) != 0; }
   /// The game is paused (the original then waits for a key and does nothing else).
   bool isPaused() const { return pause_ != Pause::No; }
   bool asksToQuit() const { return pause_ == Pause::YesOrNo; }
@@ -252,8 +336,8 @@ class Engine : public Program {
   /// Runs one of the original's pictures that are code: a row of "store this register there".
   void compiledPicture(const u8* code, std::size_t size, u16 start, u16 base, int plane, u8 litDot, u8 unlitDot);
   /// The two values a dot of the display has in video memory, which differ from table to table.
-  u8 lit() const { return kb(0x4afa, 1); }
-  u8 unlit() const { return kb(0x4b01, 1); }
+  u8 lit() const { return kb(at::dotLitInsn, 1); }
+  u8 unlit() const { return kb(at::dotUnlitInsn, 1); }
   u8& dot(int plane, u16 offset) { return video_[static_cast<std::size_t>(plane * 2)][offset]; }
 
   // --- a game's comings and goings (EngineGame.cpp)
@@ -277,7 +361,7 @@ class Engine : public Program {
   /// the last, and the row starts again.
   bool nextOfRow(u16 nativeRow);
   /// The timer whose turn it is gives up its slot without being counted off (as cs:140b).
-  void dropTimer() { nativeW(W(0x3381)) = F(0x69fc); }
+  void dropTimer() { nativeW(W(at::timerSlot)) = F(at::nothing); }
   /// Copies a shape into a collision mask (cs:5f5a): `width` bytes a row for `rows` rows.
   void patchMask(u16 partyLandSegment, u16 at, u16 nativeShape, u16 width, u16 rows);
   /// The same by the table's own segment; `step` is how far apart the shape's rows are.

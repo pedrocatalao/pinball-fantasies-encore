@@ -45,22 +45,22 @@ void Engine::fillDisplay(u16 at, u16 width, u16 rows) {
 void Engine::setFont(int which) {
   static constexpr u16 kHeight[4] = {0x0d, 0x0b, 0x08, 0x05};
   static constexpr u16 kBack[4] = {0xf77c, 0xf8cc, 0xfac4, 0xfcbc};
-  static constexpr u16 kGlyphs[4] = {0x6200, 0x6410, 0x65d0, 0x6710};
-  W(0x447f) = kHeight[which];
-  W(0x4481) = kBack[which];
-  W(0x4483) = A(kGlyphs[which]);
+  static constexpr u16 kGlyphs[4] = {at::font13, at::font11, at::font8, at::font5};
+  W(at::fontHeight) = kHeight[which];
+  W(at::fontNext) = kBack[which];
+  W(at::font) = A(kGlyphs[which]);
 }
 
 /// cs:6ccd: one letter at `at`, which is left where the original leaves DI.
 void Engine::drawChar(u8 c, u16& at) {
   if (c == 0x20) {
-    at = static_cast<u16>(at - W(0x4481) + 4);
+    at = static_cast<u16>(at - W(at::fontNext) + 4);
     return;
   }
   c = static_cast<u8>(c - 0x37);
-  u16 glyph = c == 0xf3 ? A(0x371c) : static_cast<u16>(W(0x4483) + c * B(0x447f));
-  const u16 rows = static_cast<u16>(W(0x447f) - W(0x447b));
-  glyph = static_cast<u16>(glyph + W(0x447d));
+  u16 glyph = c == 0xf3 ? A(at::blankGlyph) : static_cast<u16>(W(at::font) + c * B(at::fontHeight));
+  const u16 rows = static_cast<u16>(W(at::fontHeight) - W(at::glyphRowsCut));
+  glyph = static_cast<u16>(glyph + W(at::glyphFirstRow));
   // A row is a byte: its bits, from the top one down, are the dots from left to right, which
   // lie alternately in the two planes.
   u16 row = at;
@@ -83,16 +83,16 @@ void Engine::drawText(u16 text, u16 at) {
 }
 
 void Engine::forgetNumber() {
-  for (u16 i = 0; i < 12; ++i) B(0x4495, i) = 0xcc;
-  B(0x44a1) = 0;
-  W(0x44a2) = 0;
+  for (u16 i = 0; i < 12; ++i) B(at::numberDrawn, i) = 0xcc;
+  B(at::numberStarted) = 0;
+  W(at::numberGroups) = 0;
 }
 
 /// cs:6c0f: a number of twelve digits, one to a byte. Digits that have not changed since it
 /// was last drawn are left alone, as are the zeros in front.
 void Engine::drawNumber(u16 digits, u16 at) {
-  if (B(0x44a4) == 0xff) {  // set to the left: move back two for each zero in front
-    B(0x44a4) = 0;
+  if (B(at::numberCentred) == 0xff) {  // set to the left: move back two for each zero in front
+    B(at::numberCentred) = 0;
     u16 scanned = 0;
     while (scanned < 12 && nativeB(static_cast<u16>(digits + scanned++)) == 0) {}
     at = static_cast<u16>(at - scanned * 2);
@@ -100,24 +100,24 @@ void Engine::drawNumber(u16 digits, u16 at) {
   for (u16 i = 0; i < 12; ++i) {
     u8 d = nativeB(static_cast<u16>(digits + i));
     bool draw = true;
-    if (d == 0 && B(0x44a1) != 0xff) draw = false;
-    else if (d != 0) B(0x44a1) = 0xff;
+    if (d == 0 && B(at::numberStarted) != 0xff) draw = false;
+    else if (d != 0) B(at::numberStarted) = 0xff;
     if (draw) {
-      const u8 before = B(0x4495, i);
-      B(0x4495, i) = d;
+      const u8 before = B(at::numberDrawn, i);
+      B(at::numberDrawn, i) = d;
       if (before == d) draw = false;
     }
-    B(0x4489, i) = draw ? d : 0xff;
+    B(at::numberShown, i) = draw ? d : 0xff;
   }
-  B(0x44a1) = 0;
-  drawCommas(digits, static_cast<u16>(at - W(0x4481) + 0xf6d4));
+  B(at::numberStarted) = 0;
+  drawCommas(digits, static_cast<u16>(at - W(at::fontNext) + 0xf6d4));
   for (u16 i = 0; i < 12; ++i) {
-    const u8 d = B(0x4489, i);
+    const u8 d = B(at::numberShown, i);
     if (d == 0xff) {
       at = static_cast<u16>(at + 4);
     } else {
       drawChar(static_cast<u8>(d + 0x37), at);
-      at = static_cast<u16>(at + W(0x4481));
+      at = static_cast<u16>(at + W(at::fontNext));
     }
   }
 }
@@ -131,8 +131,8 @@ void Engine::drawCommas(u16 digits, u16 base) {
     digits = static_cast<u16>(digits + 3);
     if (sum == 0) continue;
     const bool erase = sum >= 0x0a00;
-    const bool same = groups == W(0x44a2);
-    W(0x44a2) = groups;
+    const bool same = groups == W(at::numberGroups);
+    W(at::numberGroups) = groups;
     if (same) return;
     u16 at = static_cast<u16>(base + 0xa1b - 0xc8);
     for (u16 n = groups; n > 0; --n, at = static_cast<u16>(at - 0x0c)) {
@@ -150,7 +150,7 @@ void Engine::drawCommas(u16 digits, u16 base) {
 /// digits, which are pictures that are code. Only digits that have changed are drawn.
 void Engine::drawScore(u16 digits, u16 at) {
   const u16 scoreDigits = digits, scoreAt = at;
-  const u16 segment = static_cast<u16>(cs_[static_cast<u16>(F(0x531c) - 2)] | (cs_[static_cast<u16>(F(0x531c) - 1)] << 8));
+  const u16 segment = static_cast<u16>(cs_[static_cast<u16>(F(at::bigScoreTask) - 2)] | (cs_[static_cast<u16>(F(at::bigScoreTask) - 1)] << 8));
   const u8* code = &farB(segment, 0);
   u16 count = 0x0c;
   while (nativeB(digits) == 0) {  // not the zeros in front, but always the last digit
@@ -161,20 +161,24 @@ void Engine::drawScore(u16 digits, u16 at) {
   // (that segment's own notes of these three, and its two tables of where each digit's
   // picture is, are where its own code says)
   auto its = [code](std::size_t at) { return static_cast<u16>(code[at] | (code[at + 1] << 8)); };
-  nativeW(its(0x81)) = count;
-  nativeW(its(0x85)) = at;
-  nativeW(its(0x89)) = digits;
+  // where in that segment: its three notes, and for each plane the table of the digits' pictures
+  // and what is added to an entry of it
+  constexpr std::size_t countAt = 0x81, placeAt = 0x85, digitsAt = 0x89, litDotAt = 0x8c, unlitDotAt = 0x8d;
+  constexpr std::size_t picturesEven = 0xc8, baseEven = 0xd4, picturesOdd = 0x119, baseOdd = 0x125, codeSize = 0x1480;
+  nativeW(its(countAt)) = count;
+  nativeW(its(placeAt)) = at;
+  nativeW(its(digitsAt)) = digits;
   for (int plane = 0; plane < 2; ++plane) {
     u16 place = at;
     for (u16 i = 0; i < count; ++i, place = static_cast<u16>(place + 4)) {
       const u8 d = nativeB(static_cast<u16>(digits + i));
-      const u8 before = B(0x45da, i);
-      if (plane == 1) B(0x45da, i) = d;
+      const u8 before = B(at::scoreDrawn, i);
+      if (plane == 1) B(at::scoreDrawn, i) = d;
       if (d == before) continue;
       const u16 entry = static_cast<u16>(((d + 0x30) & 0xff) * 2);
-      const u16 start = plane == 0 ? static_cast<u16>(nativeW(static_cast<u16>(its(0xc8) + entry)) + its(0xd4))
-                                   : static_cast<u16>(nativeW(static_cast<u16>(its(0x119) + entry)) + its(0x125));
-      compiledPicture(code, 0x1480, start, place, plane, code[0x8c], code[0x8d]);
+      const u16 start = plane == 0 ? static_cast<u16>(nativeW(static_cast<u16>(its(picturesEven) + entry)) + its(baseEven))
+                                   : static_cast<u16>(nativeW(static_cast<u16>(its(picturesOdd) + entry)) + its(baseOdd));
+      compiledPicture(code, codeSize, start, place, plane, code[litDotAt], code[unlitDotAt]);
     }
   }
   // cs:0135 of that segment: the marks between the thousands
@@ -183,8 +187,8 @@ void Engine::drawScore(u16 digits, u16 at) {
     const u16 sum = static_cast<u16>((nativeW(scoreDigits + (3 - groups) * 3) & 0xff00) |
                                      ((nativeW(scoreDigits + (3 - groups) * 3) + nativeB(static_cast<u16>(scoreDigits + (3 - groups) * 3 + 2))) & 0xff));
     if (sum == 0) continue;
-    const bool same = groups == W(0x45e6);
-    W(0x45e6) = groups;
+    const bool same = groups == W(at::scoreDrawnGroups);
+    W(at::scoreDrawnGroups) = groups;
     if (same) return;
     u16 mark = static_cast<u16>(scoreAt + 0xa1b - 0xc8);
     for (u16 n = groups; n > 0; --n, mark = static_cast<u16>(mark - 0x0c)) {
@@ -203,33 +207,33 @@ void Engine::drawScore(u16 digits, u16 at) {
 
 /// cs:444c: once a frame: the task, then the drawing the step asked for, if any.
 void Engine::displayStep() {
-  B(0x3397) = 0;
-  si = W(0x33e9);
-  call(W(0x33e7));
-  W(0x33e9) = si;
+  B(at::skipTask) = 0;
+  si = W(at::taskState);
+  call(W(at::task));
+  W(at::taskState) = si;
   if (si == 0) {
-    W(0x33e7) = F(0x535b);
-    if (const u16 next = W(0x33e5); next != 0) runStep(next);
+    W(at::task) = F(at::defaultTask);
+    if (const u16 next = W(at::nextStep); next != 0) runStep(next);
     else displaySteady();
-    B(0x33f9) = 0xff;
+    B(at::scriptEnded) = 0xff;
   }
-  ax = W(0x36fc);
-  di = W(0x36fe);
-  call(W(0x36fa));
-  W(0x36fa) = F(0x69fc);
+  ax = W(at::drawSource);
+  di = W(at::drawAt);
+  call(W(at::drawRoutine));
+  W(at::drawRoutine) = F(at::nothing);
 }
 
 void Engine::startScript(u16 native) {
   displaySteady();
-  B(0x33f9) = 0;
-  W(0x36f6) = 0;
-  B(0x33e1) = 0xff;
+  B(at::scriptEnded) = 0;
+  W(at::idleFrames) = 0;
+  B(at::needDefaultBg) = 0xff;
   runStep(native);
 }
 
 void Engine::runStep(u16 native) {
-  for (u16 i = 0; i < 12; ++i) B(0x45da, i) = 0x12;  // the score is drawn afresh
-  W(0x45e6) = 0;
+  for (u16 i = 0; i < 12; ++i) B(at::scoreDrawn, i) = 0x12;  // the score is drawn afresh
+  W(at::scoreDrawnGroups) = 0;
   bx = native;
   call(nativeW(native));
 }
@@ -237,98 +241,98 @@ void Engine::runStep(u16 native) {
 void Engine::nextStep(u16 size) {
   bx = static_cast<u16>(bx + size);
   if (nativeW(bx) == 0) bx = 0;
-  W(0x33e5) = bx;
+  W(at::nextStep) = bx;
 }
 
 void Engine::bindDisplay() {
   auto arg = [this](u16 n) { return nativeW(static_cast<u16>(bx + n)); };
   auto wait = [this](u16 frames) {  // the usual task: count down
-    W(0x33e9) = frames;
-    W(0x33e7) = F(0x5285);
+    W(at::taskState) = frames;
+    W(at::task) = F(at::waitTask);
   };
 
   // --- tasks: SI comes in as what the task left last time, and goes out zero when done
-  bind(0x5285, [this] { --si; });
-  bind(0x4d92, [this] { si = 1; });  // for ever
-  bind(0x531c, [this] {  // the score, once
+  bind(at::waitTask, [this] { --si; });
+  bind(at::haltTask, [this] { si = 1; });  // for ever
+  bind(at::bigScoreTask, [this] {  // the score, once
     drawScore(si, 0xa0);
-    for (u16 i = 0; i < 12; ++i) B(0x45da, i) = 0x12;
-    W(0x45e6) = 0;
+    for (u16 i = 0; i < 12; ++i) B(at::scoreDrawn, i) = 0x12;
+    W(at::scoreDrawnGroups) = 0;
     si = 0;
   });
-  bind(0x535b, [this] {  // nothing in particular to show (cs:535b)
+  bind(at::defaultTask, [this] {  // nothing in particular to show (cs:535b)
     si = 0;
-    if (CB(0x3475) == 0) return;
-    if (W(0x36f6) == 0x2d0) {
-      if (B(0x338a) != 0xff) {
-        W(0x36f8) = 0xff;
-        B(0x2249) = B(0x2288);
-        B(0x2253) = B(0x228f);
-        startScript(A(0x18ea));
+    if (CB(at::keysOn) == 0) return;
+    if (W(at::idleFrames) == 0x2d0) {
+      if (B(at::ballOnPlunger) != 0xff) {
+        W(at::idleShowing) = 0xff;
+        B(at::idlePlayerDigit) = B(at::playerDigit);
+        B(at::idleBallDigit) = B(at::ballDigit);
+        startScript(A(at::scriptGameIdle));
       }
-    } else if (B(0x372c) == 0xff) {
-      B(0x372c) = 0;
-      startScript(A(0x19d4));
+    } else if (B(at::enterAttract) == 0xff) {
+      B(at::enterAttract) = 0;
+      startScript(A(at::scriptAttract));
       si = 0;
       return;
-    } else if (B(0x3713) == 0xff) {
-      startScript(A(0x17c4));
-    } else if (B(0x33e0) != 0xff && B(0x33e1) == 0xff) {
-      B(0x33e1) = 0;
-      runStep(A(0x1acc));
+    } else if (B(at::attract) == 0xff) {
+      startScript(A(at::scriptGameOver));
+    } else if (B(at::ballUntouched) != 0xff && B(at::needDefaultBg) == 0xff) {
+      B(at::needDefaultBg) = 0;
+      runStep(A(at::scriptMain));
     }
     // cs:5406: has the score passed the best on the table?
-    if (B(0x33e0) != 0xff && B(0x33e2) != 0xff && B(0x33f1) != 0xff) {
+    if (B(at::ballUntouched) != 0xff && B(at::modeRunning) != 0xff && B(at::gotTopScore) != 0xff) {
       for (u16 i = 0; i < 12; ++i) {
-        const u8 best = nativeB(static_cast<u16>(kw(0x5425, 1) + i)), score = B(0x45b6, i);
+        const u8 best = nativeB(static_cast<u16>(kw(at::bestScoreTopInsn, 1) + i)), score = B(at::score, i);
         if (score < best) break;
         if (score > best) {
-          B(0x33f1) = 0xff;
-          startScript(A(0x13f7));
-          B(0x33e1) = 0xff;
+          B(at::gotTopScore) = 0xff;
+          startScript(A(at::scriptTopScoreIngame));
+          B(at::needDefaultBg) = 0xff;
           break;
         }
       }
     }
-    ++W(0x36f6);
-    drawScore(A(0x45b6), 0xc8);
+    ++W(at::idleFrames);
+    drawScore(A(at::score), 0xc8);
     si = 0;
   });
-  bind(0x5287, [this] {  // waits for Y or N
+  bind(at::confirmQuitTask, [this] {  // waits for Y or N
     si = 1;
     u8 key = B(at::lastKey);
     if (key == 0xff) return;
     B(at::lastKey) = 0xff;
-    key = B(0x3654, key);
+    key = B(at::scancodeLetters, key);
     if (key == 0) return;
-    if (key == 0x59) CB(0x3732) = 0xff;
-    CB(0x3195) = 0;
-    CB(0x3475) = 0xff;
+    if (key == 0x59) CB(at::quit) = 0xff;
+    CB(at::quitAsked) = 0;
+    CB(at::keysOn) = 0xff;
     si = 0;
   });
 
-  bind(0x52cd, [this] {  // until the music has come round
+  bind(at::waitJingleTask, [this] {  // until the music has come round
     si = 0xff;
-    if (B(0x338e) == 0xff) si = 0;
+    if (B(at::jingleEnded) == 0xff) si = 0;
   });
-  bind(0x52e3, [this] {  // until an effect has ended, but no longer than so many frames
+  bind(at::waitJingleTimeoutTask, [this] {  // until an effect has ended, but no longer than so many frames
     si = 0xff;
     if (sound->status() & 8) {
-      if (--W(0x3551) == 0) si = 0;
-    } else if (B(0x338e) == 0xff) {
+      if (--W(at::jingleTimeout) == 0) si = 0;
+    } else if (B(at::jingleEnded) == 0xff) {
       si = 0;
     }
   });
 
   // --- steps
-  bind(0x5456, [this] {  // has the score passed the table's best? then say so first
-    if (B(0x33f1) != 0xff) {
+  bind(at::checkTopScore, [this] {  // has the score passed the table's best? then say so first
+    if (B(at::gotTopScore) != 0xff) {
       for (u16 i = 0; i < 12; ++i) {
-        const u8 best = nativeB(static_cast<u16>(kw(0x5425, 1) + i)), score = B(0x45b6, i);
+        const u8 best = nativeB(static_cast<u16>(kw(at::bestScoreTopInsn, 1) + i)), score = B(at::score, i);
         if (score < best) break;
         if (score > best) {
-          B(0x33f1) = 0xff;
-          bx = A(0x13cd);
+          B(at::gotTopScore) = 0xff;
+          bx = A(at::scriptTopScoreInterball);
           call(nativeW(bx));
           return;
         }
@@ -337,165 +341,167 @@ void Engine::bindDisplay() {
     bx = static_cast<u16>(bx + 2);
     call(nativeW(bx));
   });
-  bind(0x5273, [this] {
-    W(0x33e7) = F(0x52cd);
+  bind(at::waitJingle, [this] {
+    W(at::task) = F(at::waitJingleTask);
     nextStep(4);
   });
-  bind(0x527c, [this] {
-    W(0x33e7) = F(0x52e3);
+  bind(at::waitJingleTimeout, [this] {
+    W(at::task) = F(at::waitJingleTimeoutTask);
     nextStep(4);
   });
-  bind(0x4736, [=, this] {  // a piece of music, come what may
+  bind(at::playJingle, [=, this] {  // a piece of music, come what may
     wait(1);
-    B(0x3389) = 0;
+    B(at::musicPriority) = 0;
     // (the original has the music go back afterwards to the place it was told to before;
     // amended: when no other piece is playing, back to where the music is now, as any other)
-    if (!amended || static_cast<i8>(B(0x230d)) > 0) B(0x230d) = 1;
+    if (!amended || static_cast<i8>(B(at::musicRepeats)) > 0) B(at::musicRepeats) = 1;
     music(arg(2));
     nextStep(4);
   });
-  bind(0x2cf1, [=, this] {  // go on from another place in the script
+  bind(at::jump, [=, this] {  // go on from another place in the script
     bx = arg(2);
-    W(0x33e5) = bx;
+    W(at::nextStep) = bx;
     call(nativeW(bx));
   });
-  bind(0x453a, [=, this] {  // the score
-    W(0x33e9) = arg(2);
-    W(0x33e7) = F(0x531c);
+  bind(at::dmBigScore, [=, this] {  // the score
+    W(at::taskState) = arg(2);
+    W(at::task) = F(at::bigScoreTask);
     nextStep(4);
   });
-  bind(0x454a, [=, this] {  // the display flashes, this many frames each way
+  bind(at::dmBlink, [=, this] {  // the display flashes, this many frames each way
     const u16 period = arg(2);
     wait(1);
-    W(0x3390) = period;
-    W(0x3392) = period;
-    W(0x3394) = 0xff;
-    B(0x3396) = 0xff;
+    W(at::flashPeriod) = period;
+    W(at::flashCount) = period;
+    W(at::flashPhase) = 0xff;
+    B(at::flashing) = 0xff;
     nextStep(4);
   });
   // a number at a place, in each font, and set to the left
   struct NumberStep { u16 step, draw; bool left; };
-  for (const NumberStep n : {NumberStep{0x45f1, 0x458e, false}, {0x461a, 0x45af, false}, {0x4643, 0x456d, false},
-                             {0x466c, 0x456d, true}, {0x469b, 0x45af, true}, {0x46ca, 0x45d0, false}}) {
+  for (const NumberStep n : {NumberStep{at::dmPrintScore11, at::drawNumber11, false}, {at::dmPrintScore13, at::drawNumber13, false},
+                             {at::dmPrintScore8, at::drawNumber8, false}, {at::dmPrintScore8Centred, at::drawNumber8, true},
+                             {at::dmPrintScore13Centred, at::drawNumber13, true}, {at::dmPrintScore5, at::drawNumber5, false}}) {
     bind(n.step, [=, this] {
-      if (n.left) B(0x44a4) = 0xff;
+      if (n.left) B(at::numberCentred) = 0xff;
       wait(1);
-      W(0x447d) = 0;
-      W(0x4485) = arg(2);
-      W(0x4487) = arg(4);
-      W(0x36fa) = F(n.draw);
+      W(at::glyphFirstRow) = 0;
+      W(at::numberDigits) = arg(2);
+      W(at::numberAt) = arg(4);
+      W(at::drawRoutine) = F(n.draw);
       nextStep(6);
     });
   }
   struct NumberDraw { u16 at; int font; };
-  for (const NumberDraw n : {NumberDraw{0x456d, 2}, {0x458e, 1}, {0x45af, 0}, {0x45d0, 3}}) {
+  for (const NumberDraw n : {NumberDraw{at::drawNumber8, 2}, {at::drawNumber11, 1}, {at::drawNumber13, 0}, {at::drawNumber5, 3}}) {
     bind(n.at, [=, this] {
       forgetNumber();
       setFont(n.font);
-      drawNumber(W(0x4485), W(0x4487));
+      drawNumber(W(at::numberDigits), W(at::numberAt));
     });
   }
-  bind(0x46f3, [=, this] {  // a sound
+  bind(at::playSfx, [=, this] {  // a sound
     wait(1);
     const u16 record = arg(2);
-    sound->effect(nativeB(record), nativeB(static_cast<u16>(record + 1)), static_cast<u8>(arg(4)),
-                  static_cast<u8>(nativeB(static_cast<u16>(record + 3)) + 1));
+    sound->effect(nativeB(static_cast<u16>(record + soundRec::sample)), nativeB(static_cast<u16>(record + soundRec::note)), static_cast<u8>(arg(4)),
+                  static_cast<u8>(nativeB(static_cast<u16>(record + soundRec::channel)) + 1));
     nextStep(6);
   });
-  bind(0x471e, [=, this] {
+  bind(at::setMusic, [=, this] {
     wait(1);
-    B(0x230a) = static_cast<u8>(arg(2));
+    B(at::musicNext) = static_cast<u8>(arg(2));
     nextStep(4);
   });
   // text at a place, in each font
   struct TextStep { u16 step; int font; };
-  for (const TextStep t : {TextStep{0x4b53, 0}, {0x4b94, 1}, {0x4bd5, 2}, {0x4c16, 3}}) {
+  for (const TextStep t : {TextStep{at::dmPuts13, 0}, {at::dmPuts11, 1}, {at::dmPuts8, 2}, {at::dmPuts5, 3}}) {
     bind(t.step, [=, this] {
       wait(1);
       setFont(t.font);
-      W(0x447b) = 0;
-      W(0x447d) = 0;
-      W(0x36fc) = arg(2);
-      W(0x36fe) = arg(4);
-      W(0x36fa) = F(0x6ca5);
+      W(at::glyphRowsCut) = 0;
+      W(at::glyphFirstRow) = 0;
+      W(at::drawSource) = arg(2);
+      W(at::drawAt) = arg(4);
+      W(at::drawRoutine) = F(at::drawText);
       nextStep(6);
     });
   }
-  bind(0x6ca5, [this] { drawText(ax, di); });
-  bind(0x4ceb, [=, this] {
+  bind(at::drawText, [this] { drawText(ax, di); });
+  bind(at::dmStopBlink, [=, this] {
     wait(1);
     displaySteady();
     nextStep(4);
   });
-  bind(0x4cfd, [=, this] {
+  bind(at::dmState, [=, this] {
     wait(1);
     if (arg(2) != 0) displayNormal();
     else displayInverse();
     nextStep(4);
   });
-  bind(0x4d1e, [=, this] {
+  bind(at::setJingleTimeout, [=, this] {
     wait(1);
-    W(0x3551) = arg(2);
+    W(at::jingleTimeout) = arg(2);
     nextStep(4);
   });
-  bind(0x4d52, [=, this] {  // wait
+  bind(at::delay, [=, this] {  // wait
     wait(arg(2));
     nextStep(4);
   });
-  bind(0x4d62, [=, this] {  // wait, but not long for one player
+  bind(at::delayIfMultiplayer, [=, this] {  // wait, but not long for one player
     // (amended: on Stones 'n Bones a lone player is given the time as well, to read what the
     // display says between balls)
-    wait(B(0x3716) == 1 && !(amended && table() == 3) ? 2 : arg(2));
+    wait(B(at::players) == 1 && !(amended && table() == 3) ? 2 : arg(2));
     nextStep(4);
   });
-  bind(0x4d82, [=, this] {
-    W(0x33e9) = arg(2);
-    W(0x33e7) = F(0x4d92);
+  bind(at::halt, [=, this] {
+    W(at::taskState) = arg(2);
+    W(at::task) = F(at::haltTask);
     nextStep(4);
   });
-  bind(0x4d96, [=, this] {
-    W(0x33e9) = arg(2);
-    W(0x33e7) = F(0x5287);
+  bind(at::confirmQuit, [=, this] {
+    W(at::taskState) = arg(2);
+    W(at::task) = F(at::confirmQuitTask);
     nextStep(4);
   });
 
   // --- the big letters that run across the display (cs:6e9c). They are pictures that are
   // code, drawn afresh each frame half a dot further left: by turns in each plane.
-  bind(0x4519, [=, this] {
-    if (W(0x33e9) != 0) B(0x3397) = 0xff;
-    W(0x33e7) = F(0x6e9c);
-    W(0x33e9) = arg(2);
+  bind(at::dmLongMsg, [=, this] {
+    if (W(at::taskState) != 0) B(at::skipTask) = 0xff;
+    W(at::task) = F(at::longMsgTask);
+    W(at::taskState) = arg(2);
     nextStep(4);
   });
-  bind(0x6e9c, [this] {
+  bind(at::longMsgTask, [this] {
     for (int twice = 0; twice < 2; ++twice) {
       if (nativeB(static_cast<u16>(si + 0x14)) == 0xff) {  // the end of the text
-        W(0x44a8) += 1;
+        W(at::longMsgText) += 1;
         si = 0;
         return;
       }
       struct Pass { u16 mask, at, table, base; };
-      for (const Pass pass : {Pass{0x6fb0, 0x6fb3, 0x6000, 0x70a0}, Pass{0x6faf, 0x6fb1, 0x5e00, 0x7c10}}) {
+      for (const Pass pass : {Pass{at::longMsgMaskB, at::longMsgAtB, at::longFontOddIndex, at::longFontOdd},
+                              Pass{at::longMsgMaskA, at::longMsgAtA, at::longFontEvenIndex, at::longFontEven}}) {
         const int plane = CB(pass.mask) == 1 ? 0 : 1;
         u16 place = CW(pass.at);
         for (u16 i = 0; i < 0x15; ++i, place = static_cast<u16>(place + 4)) {
           const u8 c = nativeB(static_cast<u16>(si + i));
           compiledPicture(cs_.data(), cs_.size(), static_cast<u16>(W(pass.table, static_cast<u16>(c * 2)) + A(pass.base)), place, plane,
-                          kb(0x6eae, 1), kb(0x6eae, 2));
+                          kb(at::longFontColoursInsn, 1), kb(at::longFontColoursInsn, 2));
         }
       }
-      CB(0x6faf) ^= 5;
-      CB(0x6fb0) ^= 5;
-      if (CB(0x6fb0) == 1) CW(0x6fb1) -= 1;
-      else CW(0x6fb3) -= 1;
-      if (--CB(0x6f97) == 0) {  // eight half-dots: on to the next letter
-        CB(0x6f97) = 8;
+      CB(at::longMsgMaskA) ^= 5;
+      CB(at::longMsgMaskB) ^= 5;
+      if (CB(at::longMsgMaskB) == 1) CW(at::longMsgAtA) -= 1;
+      else CW(at::longMsgAtB) -= 1;
+      if (--CB(at::longMsgEighths) == 0) {  // eight half-dots: on to the next letter
+        CB(at::longMsgEighths) = 8;
         ++si;
-        CW(0x6fb1) = kRow;
-        CW(0x6fb3) = kRow;
+        CW(at::longMsgAtA) = kRow;
+        CW(at::longMsgAtB) = kRow;
       }
-      W(0x44a8) = si;
-      W(0x44a6) = W(0x44a6);
+      W(at::longMsgText) = si;
+      W(at::longMsgPlace) = W(at::longMsgPlace);
     }
   });
 
@@ -504,20 +510,20 @@ void Engine::bindDisplay() {
   // stays and, for each plane, a list of dots to light or put out.
   // (its three counters and its note of where it is are in the bank itself, at places each
   // table's own code names)
-  bind(0x44dd, [=, this] {
-    if (W(0x33e9) != 0) B(0x3397) = 0xff;
-    const u16 bank = S(0x2056), anim = arg(2);
-    farW(bank, kw(0x44f5, 2)) = 0;
-    farW(bank, kw(0x44fb, 2)) = 1;
-    farW(bank, kw(0x4504, 2)) = farW(bank, static_cast<u16>(anim - 4));
-    W(0x33e7) = F(0x6fb5);
-    W(0x33e9) = anim;
+  bind(at::dmAnim, [=, this] {
+    if (W(at::taskState) != 0) B(at::skipTask) = 0xff;
+    const u16 bank = S(at::spriteBank), anim = arg(2);
+    farW(bank, kw(at::animEntryInsn, 2)) = 0;
+    farW(bank, kw(at::animFramesLeftInsn, 2)) = 1;
+    farW(bank, kw(at::animRoundsLeftInsn, 2)) = farW(bank, static_cast<u16>(anim - 4));
+    W(at::task) = F(at::animTask);
+    W(at::taskState) = anim;
     nextStep(4);
   });
-  bind(0x6fb5, [this] {
-    const u16 bank = S(0x2056);
-    const u16 entryAt = kw(0x44f5, 2), framesLeft = kw(0x44fb, 2), roundsLeft = kw(0x4504, 2);
-    farW(bank, kw(0x6fc3, 2)) = si;
+  bind(at::animTask, [this] {
+    const u16 bank = S(at::spriteBank);
+    const u16 entryAt = kw(at::animEntryInsn, 2), framesLeft = kw(at::animFramesLeftInsn, 2), roundsLeft = kw(at::animRoundsLeftInsn, 2);
+    farW(bank, kw(at::animStateInsn, 2)) = si;
     if (--farW(bank, framesLeft) != 0) return;
     const u16 entry = farW(bank, entryAt);
     if (entry == farW(bank, static_cast<u16>(si - 2))) {
@@ -539,204 +545,204 @@ void Engine::bindDisplay() {
       for (u16 i = 0; i < count; ++i) {
         const u8 b = farB(bank, frame++);
         place = static_cast<u16>(place + (b >> 1));
-        if (b & 1) dot(plane, place) = kb(0x7001, 1);
-        else if ((b >> 1) != 0x7f) dot(plane, place) = kb(0x7001, 2);
+        if (b & 1) dot(plane, place) = kb(at::animDotColoursInsn, 1);
+        else if ((b >> 1) != 0x7f) dot(plane, place) = kb(at::animDotColoursInsn, 2);
       }
     }
   });
 
   // --- text that slides in from below, or out upwards
   auto slide = [this] {  // cs:4988
-    const i16 row = W(0x370a).s();
+    const i16 row = W(at::msgScrollRow).s();
     u16 at = 0;
     if (row < 0) {
-      W(0x447b) = static_cast<u16>(-row);
-      W(0x447d) = static_cast<u16>(-row);
+      W(at::glyphRowsCut) = static_cast<u16>(-row);
+      W(at::glyphFirstRow) = static_cast<u16>(-row);
       at = kRow;
     } else if (row > 3) {
-      W(0x447b) = static_cast<u16>(row - 3);
-      W(0x447d) = 0;
+      W(at::glyphRowsCut) = static_cast<u16>(row - 3);
+      W(at::glyphFirstRow) = 0;
       at = static_cast<u16>((row + 1) * kRow);
     } else {
-      W(0x447b) = 0;
-      W(0x447d) = 0;
+      W(at::glyphRowsCut) = 0;
+      W(at::glyphFirstRow) = 0;
       at = static_cast<u16>(row * kRow + kRow);
     }
-    if (W(0x447b) < 0x0d) drawText(W(0x3708), at);
-    if (W(0x370a) == W(0x370c)) {
+    if (W(at::glyphRowsCut) < 0x0d) drawText(W(at::msgScrollText), at);
+    if (W(at::msgScrollRow) == W(at::msgScrollTarget)) {
       si = 0;
-      W(0x447b) = 0;
-      W(0x447d) = 0;
+      W(at::glyphRowsCut) = 0;
+      W(at::glyphFirstRow) = 0;
     } else {
       si = 1;
     }
   };
   // --- a count-down: seconds on the left, counted off, with a score beside them
   auto countDown = [=, this] {  // cs:4780: from so many seconds
-    B(0x33e4) = 0;
-    W(0x33e9) = 1;
-    W(0x33e7) = F(0x47db);
+    B(at::pendingMode) = 0;
+    W(at::taskState) = 1;
+    W(at::task) = F(at::modeTask);
     forgetNumber();
-    W(0x36f0) = arg(6);
-    W(0x36ee) = 1;
-    B(0x36f3) = static_cast<u8>(0x37 + arg(2));
-    B(0x36f4) = static_cast<u8>(0x38 + arg(4));
+    W(at::modeScoreShown) = arg(6);
+    W(at::modeFrames) = 1;
+    B(at::countdownTens) = static_cast<u8>(0x37 + arg(2));
+    B(at::countdownUnits) = static_cast<u8>(0x38 + arg(4));
     nextStep(8);
   };
-  bind(0x4757, [=, this] {  // cs:4757: on from where it was, and no longer held
-    B(0x33e4) = 0;
-    W(0x33e9) = 1;
-    W(0x33e7) = F(0x47db);
+  bind(at::modeContinue, [=, this] {  // cs:4757: on from where it was, and no longer held
+    B(at::pendingMode) = 0;
+    W(at::taskState) = 1;
+    W(at::task) = F(at::modeTask);
     forgetNumber();
-    W(0x36f0) = arg(6);
-    W(0x36ee) = 1;
-    B(0x33f7) = 0;
+    W(at::modeScoreShown) = arg(6);
+    W(at::modeFrames) = 1;
+    B(at::countdownHeld) = 0;
     nextStep(8);
   });
-  bind(0x4780, countDown);
-  bind(0x47bc, [=, this] {  // or on from where it was, unless it is to begin again
-    if (B(0x33e4) == 0xff) return countDown();
-    W(0x33e9) = 1;
-    W(0x33e7) = F(0x47db);
+  bind(at::modeStart, countDown);
+  bind(at::modeStartOrContinue, [=, this] {  // or on from where it was, unless it is to begin again
+    if (B(at::pendingMode) == 0xff) return countDown();
+    W(at::taskState) = 1;
+    W(at::task) = F(at::modeTask);
     forgetNumber();
-    W(0x36ee) = 1;
+    W(at::modeFrames) = 1;
     nextStep(8);
   });
-  bind(0x47db, [this] {
+  bind(at::modeTask, [this] {
     si = 1;
-    if (B(0x33f7) != 0xff && --W(0x36ee) == 0) {
-      W(0x36ee) = W(0x36ec);
-      if (B(0x36f4) == 0x37 && B(0x36f3) == 0x2a) {  // nought: it is over
-        W(0x33e9) = 0;
+    if (B(at::countdownHeld) != 0xff && --W(at::modeFrames) == 0) {
+      W(at::modeFrames) = W(at::modeSecondFrames);
+      if (B(at::countdownUnits) == 0x37 && B(at::countdownTens) == 0x2a) {  // nought: it is over
+        W(at::taskState) = 0;
         si = 0;
         return;
       }
-      if (--B(0x36f4) == 0x36) {
-        B(0x36f4) += 0x0a;
-        --B(0x36f3);
+      if (--B(at::countdownUnits) == 0x36) {
+        B(at::countdownUnits) += 0x0a;
+        --B(at::countdownTens);
       }
-      if (B(0x36f3) == 0x37) B(0x36f3) = 0x2a;  // no nought in front
+      if (B(at::countdownTens) == 0x37) B(at::countdownTens) = 0x2a;  // no nought in front
       const u16 keptSi = si;
-      call(F(0x2ddc));  // the table's own, each second
+      call(F(at::tableModeSecond));
       si = keptSi;
       setFont(1);
-      W(0x447b) = 0;
-      W(0x447d) = 0;
-      W(0x36fc) = A(0x36f3);
-      W(0x36fe) = 0x240;
-      W(0x36fa) = F(0x6ca5);
+      W(at::glyphRowsCut) = 0;
+      W(at::glyphFirstRow) = 0;
+      W(at::drawSource) = A(at::countdownTens);
+      W(at::drawAt) = 0x240;
+      W(at::drawRoutine) = F(at::drawText);
       return;
     }
-    W(0x447d) = 0;
-    W(0x4485) = W(0x36f0);
-    W(0x4487) = 0x158;
-    W(0x36fa) = F(0x45af);
+    W(at::glyphFirstRow) = 0;
+    W(at::numberDigits) = W(at::modeScoreShown);
+    W(at::numberAt) = 0x158;
+    W(at::drawRoutine) = F(at::drawNumber13);
   });
-  bind(0x4892, [=, this] {
-    W(0x33e7) = F(0x48cc);
-    W(0x3708) = arg(2);
-    W(0x370c) = arg(4);
-    W(0x370a) = 0x10;
+  bind(at::dmMsgScrollUp, [=, this] {
+    W(at::task) = F(at::msgScrollUpTask);
+    W(at::msgScrollText) = arg(2);
+    W(at::msgScrollTarget) = arg(4);
+    W(at::msgScrollRow) = 0x10;
     nextStep(6);
   });
-  bind(0x48af, [=, this] {
-    W(0x33e7) = F(0x4922);
-    W(0x3708) = arg(2);
-    W(0x370c) = arg(4);
-    W(0x370a) = 0xfff3;
+  bind(at::dmMsgScrollDown, [=, this] {
+    W(at::task) = F(at::msgScrollDownTask);
+    W(at::msgScrollText) = arg(2);
+    W(at::msgScrollTarget) = arg(4);
+    W(at::msgScrollRow) = 0xfff3;
     nextStep(6);
   });
-  bind(0x48cc, [=, this] {
-    --W(0x370a);
-    if (W(0x370a).s() <= 2) {
-      W(0x3700) = static_cast<u16>((W(0x370a) + 0x0d) * kRow + kRow);
-      W(0x3702) = 0x50;
-      W(0x3704) = 1;
-      fillDisplay(W(0x3700), 0x50, 1);
+  bind(at::msgScrollUpTask, [=, this] {
+    --W(at::msgScrollRow);
+    if (W(at::msgScrollRow).s() <= 2) {
+      W(at::fillAt) = static_cast<u16>((W(at::msgScrollRow) + 0x0d) * kRow + kRow);
+      W(at::fillWidth) = 0x50;
+      W(at::fillRows) = 1;
+      fillDisplay(W(at::fillAt), 0x50, 1);
     }
     setFont(0);
     slide();
   });
-  bind(0x4922, [=, this] {
-    ++W(0x370a);
-    if (W(0x370a).s() >= 1) {
-      W(0x3700) = static_cast<u16>((W(0x370a) - 1) * kRow + kRow);
-      W(0x3702) = 0x50;
-      W(0x3704) = 1;
-      fillDisplay(W(0x3700), 0x50, 1);
+  bind(at::msgScrollDownTask, [=, this] {
+    ++W(at::msgScrollRow);
+    if (W(at::msgScrollRow).s() >= 1) {
+      W(at::fillAt) = static_cast<u16>((W(at::msgScrollRow) - 1) * kRow + kRow);
+      W(at::fillWidth) = 0x50;
+      W(at::fillRows) = 1;
+      fillDisplay(W(at::fillAt), 0x50, 1);
     }
     setFont(0);
     slide();
   });
 
   // --- wipes: the display cleared a little each frame
-  bind(0x4dbd, [this] {  // at once
-    W(0x33e9) = 1;
-    W(0x33e7) = F(0x4dd1);
-    W(0x33eb) = 0;
+  bind(at::dmClear, [this] {  // at once
+    W(at::taskState) = 1;
+    W(at::task) = F(at::dmClearTask);
+    W(at::wipeAt) = 0;
     nextStep(2);
   });
-  bind(0x4dd1, [this] {
-    W(0x33eb) += kRow;
-    W(0x3700) = W(0x33eb);
-    W(0x3702) = 0x50;
-    W(0x3704) = 0x10;
-    fillDisplay(W(0x3700), 0x50, 0x10);
+  bind(at::dmClearTask, [this] {
+    W(at::wipeAt) += kRow;
+    W(at::fillAt) = W(at::wipeAt);
+    W(at::fillWidth) = 0x50;
+    W(at::fillRows) = 0x10;
+    fillDisplay(W(at::fillAt), 0x50, 0x10);
     si = 0;
   });
-  bind(0x4df0, [this] {  // from the top down
-    W(0x33e9) = 1;
-    W(0x33e7) = F(0x4e04);
-    W(0x33eb) = 0;
+  bind(at::dmWipeDown, [this] {  // from the top down
+    W(at::taskState) = 1;
+    W(at::task) = F(at::wipeDownTask);
+    W(at::wipeAt) = 0;
     nextStep(2);
   });
-  bind(0x4e04, [this] {
-    W(0x33eb) += kRow;
-    if (W(0x33eb) == 0xb28) {
+  bind(at::wipeDownTask, [this] {
+    W(at::wipeAt) += kRow;
+    if (W(at::wipeAt) == 0xb28) {
       si = 0;
       return;
     }
-    W(0x3700) = W(0x33eb);
-    W(0x3702) = 0x50;
-    W(0x3704) = 1;
-    fillDisplay(W(0x3700), 0x50, 1);
+    W(at::fillAt) = W(at::wipeAt);
+    W(at::fillWidth) = 0x50;
+    W(at::fillRows) = 1;
+    fillDisplay(W(at::fillAt), 0x50, 1);
     si = 1;
   });
-  bind(0x4e2d, [this] {  // from the left
-    W(0x33e9) = 1;
-    W(0x33e7) = F(0x4e42);
-    W(0x33eb) = 0xa7;
+  bind(at::dmWipeRight, [this] {  // from the left
+    W(at::taskState) = 1;
+    W(at::task) = F(at::wipeRightTask);
+    W(at::wipeAt) = 0xa7;
     nextStep(2);
   });
-  bind(0x4e42, [this] {
-    W(0x33eb) += 1;
-    if (W(0x33eb) == 0xf8) {
+  bind(at::wipeRightTask, [this] {
+    W(at::wipeAt) += 1;
+    if (W(at::wipeAt) == 0xf8) {
       si = 0;
       return;
     }
-    W(0x3700) = W(0x33eb);
-    W(0x3702) = 1;
-    W(0x3704) = 0x10;
-    fillDisplay(W(0x3700), 1, 0x10);
+    W(at::fillAt) = W(at::wipeAt);
+    W(at::fillWidth) = 1;
+    W(at::fillRows) = 0x10;
+    fillDisplay(W(at::fillAt), 1, 0x10);
     si = 1;
   });
-  bind(0x4e6d, [this] {  // as a blind
-    W(0x33e9) = 1;
-    W(0x33e7) = F(0x4e82);
-    W(0x33eb) = 0;
+  bind(at::dmWipeDownStriped, [this] {  // as a blind
+    W(at::taskState) = 1;
+    W(at::task) = F(at::wipeDownStripedTask);
+    W(at::wipeAt) = 0;
     nextStep(2);
   });
-  bind(0x4e82, [this] {
-    W(0x33eb) += kRow;
-    if (W(0x33eb) == 0x348) {
+  bind(at::wipeDownStripedTask, [this] {
+    W(at::wipeAt) += kRow;
+    if (W(at::wipeAt) == 0x348) {
       si = 0;
       return;
     }
     for (u16 band : {u16{0}, u16{0x2a0}, u16{0x540}, u16{0x7e0}}) {
-      W(0x3700) = static_cast<u16>(W(0x33eb) + band);
-      W(0x3702) = 0x50;
-      W(0x3704) = 1;
-      fillDisplay(W(0x3700), 0x50, 1);
+      W(at::fillAt) = static_cast<u16>(W(at::wipeAt) + band);
+      W(at::fillWidth) = 0x50;
+      W(at::fillRows) = 1;
+      fillDisplay(W(at::fillAt), 0x50, 1);
     }
     si = 1;
   });
