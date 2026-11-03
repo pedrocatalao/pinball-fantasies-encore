@@ -24,6 +24,7 @@
 #include <mutex>
 #include <vector>
 
+#include "engine/data/ModFile.h"
 #include "engine/table/Engine.h"
 
 namespace encore {
@@ -43,6 +44,19 @@ constexpr u8 status = 0x15;            ///< cs:0171
 constexpr u8 ticks = 0x16;             ///< cs:0132
 }  // namespace int66
 
+/// The patterns as the driver keeps them (cs:071f): three bytes a note, four notes a row,
+/// sixty-four rows a pattern. A note's first two bytes, as a word: the note's number in the
+/// low six bits, the sample's in the next five, the effect's in the top four; its third byte
+/// the effect's number.
+namespace sdr {
+constexpr int noteBytes = 3;
+constexpr int rowBytes = 12;
+constexpr int patternBytes = 0x300;
+constexpr int noteBits = 0x3f;
+constexpr int sampleShift = 6, sampleBits = 0x1f;
+constexpr int effectShift = 11, effectBits = 0x0f;
+}  // namespace sdr
+
 /// Who says where the music goes. It is asked by whoever plays the music, which is the sound
 /// card's thread when there is a card.
 class Conductor {
@@ -59,7 +73,13 @@ class Conductor {
 
 class MusicDriver : public SoundDriver {
  public:
-  explicit MusicDriver(int outputRate = 48000);
+  static constexpr int kOutputRate = 48000;  ///< the sound card's, a second
+  /// The game's frames a second: noSound() moves the music on by one of them.
+  static constexpr int kFrameRate = 60;
+  /// What int66::status answers here: bit 3 clear, no effect still sounding (SoundDriver).
+  static constexpr u8 kStatusQuiet = 7;
+
+  explicit MusicDriver(int outputRate = kOutputRate);
 
   /// int66::load: the module (a .MOD file's bytes). False if it is not one.
   bool load(ByteView mod);
@@ -71,7 +91,7 @@ class MusicDriver : public SoundDriver {
   void volume(u16 level) override;
   void stop() override;
   u8 start() override;
-  u8 status() override { return 7; }
+  u8 status() override { return kStatusQuiet; }
 
   /// This version's pause: a stop keeps every note where it is, and the next start goes on
   /// from there. (The driver's own stop silences the channels for good.)
@@ -88,7 +108,7 @@ class MusicDriver : public SoundDriver {
   bool balanced() const { return balanced_.load(std::memory_order_relaxed); }
   /// int66::position: where the music is: its place in the song and the row there.
   int position() const { return position_; }
-  int row() const { return (rowAt_ % 0x300) / 12; }
+  int row() const { return (rowAt_ % sdr::patternBytes) / sdr::rowBytes; }
   /// int66::ticks: fiftieths of a second played.
   u32 ticks() const { return ticks_.load(std::memory_order_acquire); }
   /// The effects asked for from now on belong to this moment, in seconds of the steady clock:
@@ -102,6 +122,8 @@ class MusicDriver : public SoundDriver {
   void pass(double seconds);
 
  private:
+  static constexpr int kDefaultSpeed = 6;   ///< ticks to a row, until the module sets them
+  static constexpr int kFullVolume = 0xff;  ///< the sound card's mixer's, all of it (volume())
   struct Sample {
     const i8* data = nullptr;
     u16 length = 1, loopStart = 0, loopEnd = 1;
@@ -153,15 +175,15 @@ class MusicDriver : public SoundDriver {
   int rate_;
   std::vector<u8> cells_;                 ///< the patterns, three bytes a note as the driver keeps them
   std::vector<std::vector<i8>> sampleData_;
-  std::array<Sample, 31> samples_{};
-  std::array<u8, 128> order_{};
+  std::array<Sample, modRec::sampleCount> samples_{};
+  std::array<u8, modRec::places> order_{};
   u16 length_ = 0, restart_ = 0;
   u16 position_ = 0;
   std::size_t rowAt_ = 0;                 ///< the next row, as bytes into the patterns
   u8 pendingRow_ = 0;                     ///< 0, or one more than the row a jump goes to
-  u8 speed_ = 6, ticksLeft_ = 1, rowSample_ = 0;
+  u8 speed_ = kDefaultSpeed, ticksLeft_ = 1, rowSample_ = 0;
   std::atomic<u32> ticks_{0};
-  u16 master_ = 0xff;
+  u16 master_ = kFullVolume;
   bool held_ = false;                     ///< stopped by this version's pause
   bool playing_ = false, loaded_ = false;
   std::atomic<bool> balanced_{true};
@@ -175,7 +197,7 @@ class MusicDriver : public SoundDriver {
   };
   Shelf bass_, treble_;
   void tone(float* out, std::size_t frames);
-  std::array<Channel, 4> ch_{};
+  std::array<Channel, modRec::channels> ch_{};
   bool placed_ = false;                   ///< the place to go to has been said: nobody is asked about the next
   double tickFrames_ = 0;                 ///< output frames left of the tick being played
   double passed_ = 0;                     ///< time passed without a card, not yet a whole frame of sound

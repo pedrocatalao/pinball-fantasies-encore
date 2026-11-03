@@ -10,7 +10,7 @@ TableMusic::TableMusic(Engine& engine, MusicDriver& driver)
 /// Function 0x10 as the table sees it: the answer is the place the music was at.
 u8 TableMusic::jump(u16 position) {
   const u8 was = position_;
-  position_ = static_cast<u8>(position) & 0x7f;
+  position_ = static_cast<u8>(position) & State::kPlaceBits;
   interrupt_ = true;
   told_ = true;
   return was;
@@ -32,13 +32,13 @@ void TableMusic::setView(u32 packed) {
   position_ = s.position;
   interrupt_ = s.interrupt;
   if (engine_.B(at::musicRepeats) != 0 && s.repeat == 0) {  // the jingle has ended (cs:3a6a)
-    engine_.B(at::jingleEnded) = 0xff;
-    engine_.B(at::jingleEndedRules) = 0xff;
+    engine_.B(at::jingleEnded) = kSet;
+    engine_.B(at::jingleEndedRules) = kSet;
   }
   engine_.B(at::musicRepeats) = s.repeat;
   engine_.B(at::musicPriority) = s.priority;
   engine_.B(at::musicNext) = s.music;
-  if ((engine_.B(at::musicOff) != 0) != s.off) engine_.B(at::musicOff) = s.off ? 0xff : 0;
+  if ((engine_.B(at::musicOff) != 0) != s.off) engine_.B(at::musicOff) = s.off ? kSet : 0;
   last_ = view();
 }
 
@@ -78,7 +78,7 @@ u8 TableMusic::next(u8 following) {
   for (;;) {
     State s(value);
     if (s.interrupt) return following;  // it is about to be sent elsewhere anyway
-    s.position = following & 0x7f;
+    s.position = following & State::kPlaceBits;
     if (state_.compare_exchange_weak(value, s.pack(), std::memory_order_release, std::memory_order_acquire)) return following;
   }
 }
@@ -101,7 +101,7 @@ u8 TableMusic::jump(u8 place) {
       s.repeat = left;
     }
     if (s.off && to <= lastOfMusic_) to = silence_;
-    s.position = to & 0x7f;
+    s.position = to & State::kPlaceBits;
     if (state_.compare_exchange_weak(value, s.pack(), std::memory_order_release, std::memory_order_acquire)) return to;
   }
 }

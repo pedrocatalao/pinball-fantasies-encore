@@ -17,7 +17,24 @@ constexpr std::size_t song = 950;          ///< songRec, after the 31st sample's
 constexpr std::size_t mark = 1080;         ///< four letters: "M.K." and the like
 constexpr std::size_t patterns = 1084;
 constexpr std::size_t patternSize = 1024;  ///< 64 rows of 4 notes, 4 bytes each
+constexpr std::size_t markSize = 4;
+constexpr int sampleCount = 31;     ///< samples' records; in the oldest kind,
+constexpr int oldSampleCount = 15;
+constexpr int places = 128;         ///< the song's places, each the number of a pattern
+constexpr int rows = 64;            ///< a pattern's rows,
+constexpr int channels = 4;         ///< each a note for each channel
+constexpr std::size_t noteSize = 4;
 }  // namespace modRec
+
+/// A note in a pattern (pfr: sound/loader.rs): the sample's number is split between the high
+/// halves of its first and third bytes; the period is twelve bits, the effect four.
+namespace noteRec {
+constexpr std::size_t period = 0;  ///< its top four bits in the low half, with the sample's high half above
+constexpr std::size_t periodLow = 1;
+constexpr std::size_t effect = 2;  ///< in the low half, the sample's low half above
+constexpr std::size_t param = 3;
+constexpr u8 highHalf = 0xf0, lowHalf = 0x0f;
+}  // namespace noteRec
 
 /// A sample's record (pfr's Sample). Its words are big-endian, and count words.
 namespace sampleRec {
@@ -25,6 +42,8 @@ constexpr std::size_t size = 30;
 constexpr std::size_t nameSize = 22;  ///< the name comes first
 constexpr std::size_t length = 22;
 constexpr std::size_t finetune = 24, volume = 25;
+constexpr u8 finetuneBits = 0x0f;  ///< four bits of finetune, signed, in its byte
+constexpr int maxVolume = 64;
 constexpr std::size_t loopStart = 26, loopLength = 28;  ///< pfr: repeat
 }  // namespace sampleRec
 
@@ -56,7 +75,7 @@ struct ModSample {
   std::string name;
   u32 length = 0;      ///< bytes
   i8 finetune = 0;     ///< -8..7
-  u8 volume = 64;
+  u8 volume = sampleRec::maxVolume;
   u32 loopStart = 0;   ///< bytes
   u32 loopLength = 0;  ///< bytes; <= 2 means no loop
   std::vector<i8> data;
@@ -72,15 +91,15 @@ struct ModNote {
 
 struct ModFile {
   std::string title;
-  std::array<ModSample, 31> samples;
+  std::array<ModSample, modRec::sampleCount> samples;
   u8 songLength = 0;
   u8 restart = 0;
-  std::array<u8, 128> order{};
+  std::array<u8, modRec::places> order{};
   int patternCount = 0;
   std::vector<ModNote> notes;  ///< patternCount * 64 rows * 4 channels
 
   const ModNote& note(int pattern, int row, int channel) const {
-    return notes[(static_cast<std::size_t>(pattern) * 64 + row) * 4 + channel];
+    return notes[(static_cast<std::size_t>(pattern) * modRec::rows + row) * modRec::channels + channel];
   }
 
   static ModFile load(const std::filesystem::path& path);

@@ -7,6 +7,7 @@
 // For the pictures drawn again at high resolution (gfx/HdLayer.h) it also says, dot by dot,
 // which dot of the playfield's picture each is and how lit, and where the flippers and the
 // ball are, as pictures to be turned and placed.
+#include "engine/Values.h"
 #include "engine/data/BallSprite.h"
 #include "engine/data/TableData.h"
 #include "engine/table/Engine.h"
@@ -25,16 +26,25 @@ class TableScreen {
   static constexpr int kWidth = 320;
   static constexpr int kDisplayRows = 33;
   static constexpr int kDisplayGap = 2;  // its first rows, always black: the dots begin below them
+  /// The video card's memory as the tables lay it out (Engine.h's video): a row is 0x54 bytes
+  /// of each of four planes, 80 of them shown (a byte of each plane is four dots side by side).
+  static constexpr int kRowBytes = 0x54, kShownBytes = 80, kPlanes = 4;
+  /// The screen's rows in the original's two modes.
+  static constexpr int kRowsNormal = 240, kRowsHigh = 350;
+  static constexpr int kColours = 256;
+  static constexpr int kDacBytes = 768;  ///< the colours' red, green and blue, 0 to 0x3f each
+  /// How the lamps are shown (View::lamps).
+  static constexpr int kLampsAsGame = 0, kLampsLit = 1, kLampsOut = 2, kLampModes = 3;
 
   TableScreen(const std::filesystem::path& prg, int table);
   TableScreen(Bytes prg, int table);
 
   /// The screen's rows in the mode the options chose: 240, or 350.
-  static int height(bool highResolution) { return highResolution ? 350 : 240; }
+  static int height(bool highResolution) { return highResolution ? kRowsHigh : kRowsNormal; }
 
   /// What is to be seen of the table.
   struct View {
-    int height = 350;  ///< the screen's rows: the display's 33, and above them the playfield's
+    int height = kRowsHigh;  ///< the screen's rows: the display's 33, and above them the playfield's
     int top = 0;       ///< the row of the playfield's picture at the top of the screen
     /// 0: the lights as the game has them; 1: every one lit; 2: every one out.
     int lamps = 0;
@@ -102,7 +112,7 @@ class TableScreen {
   void buildLampAreas(Engine& engine);
   float flipperAngle(Engine& engine, const FlipperArt& art) const;
   void sharedFlipper(const FlipperArt& art, HdSprite& sprite) const;
-  void lampsLit(Engine& engine, int lamps, std::array<bool, 256>& lit) const;
+  void lampsLit(Engine& engine, int lamps, std::array<bool, kColours>& lit) const;
 
   TableData data_;
   int table_ = 0;  ///< 0 to 3

@@ -15,6 +15,7 @@ namespace encore {
 struct TableData {
   static constexpr int kWidth = 320;
   static constexpr int kHeight = 576;
+  static constexpr int kStrips = 4;  ///< the playfield's picture comes in four
 
   int index = 0;                  ///< 0..3
   std::string name;               ///< "Party Land", ...
@@ -22,7 +23,7 @@ struct TableData {
   Bytes playfield;                ///< 320*576 palette indices (four strips joined)
   std::vector<Rgb> palette;       ///< the 256-colour palette in use
   std::vector<ColorRange> colorRanges;
-  std::array<IffImage, 4> strips;
+  std::array<IffImage, kStrips> strips;
 
   // Collision masks (1 = solid).
   Mask walls;      ///< static playfield

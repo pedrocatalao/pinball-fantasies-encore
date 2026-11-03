@@ -16,7 +16,8 @@ struct SoundAddresses {
   u16 silence, plunger, main, attract, warnTilt, tilt, gameOverSad, gameOverHighScore;
   u16 drainedJingle, gameStartJingle, matchStart, matchWin;
 };
-constexpr SoundAddresses kTables[4] = {
+constexpr int kTableCount = 4;
+constexpr SoundAddresses kTables[kTableCount] = {
     // TABLE1.PRG, Party Land
     {.flipper = 0x0c2d, .drained = 0x0c31, .issueBall = 0x0c35, .spring = 0x0c3d, .rollInner = 0x0c49,
      .tickBonus = 0x0c61, .gameStart = 0x0c65, .raiseTargets = 0x0c1d,
@@ -46,9 +47,14 @@ constexpr SoundAddresses kTables[4] = {
 /// A sound effect's record has a byte between the note and the channel that no routine reads;
 /// it is nought in every record (pfr's reading asserts it).
 constexpr u16 soundRecSpare = 2;
+/// The records' sizes: a tune's three bytes, a sound effect's four.
+constexpr std::size_t kTuneRecSize = 3, kSoundRecSize = 4;
+/// What an effect can be: a sample of the module's 31, a note of the driver's 36, on one of
+/// the four channels (counted from nought here).
+constexpr u8 kSamples = 31, kNotes = 36, kLastChannel = 3;
 
 Jingle readJingle(ByteView d, std::size_t at) {
-  if (at + 3 > d.size()) return {};
+  if (at + kTuneRecSize > d.size()) return {};
   return {d[at + tuneRec::place], d[at + tuneRec::repeats], d[at + tuneRec::priority]};
 }
 
@@ -56,12 +62,12 @@ Jingle readJingle(ByteView d, std::size_t at) {
 
 namespace {
 bool plausible(const Sfx& s) {
-  return s.sample >= 1 && s.sample <= 31 && s.note >= 1 && s.note <= 36 && s.channel <= 3;
+  return s.sample >= 1 && s.sample <= kSamples && s.note >= 1 && s.note <= kNotes && s.channel <= kLastChannel;
 }
 }  // namespace
 
 Sfx readSfx(ByteView d, std::size_t at) {
-  if (at + 4 > d.size()) return {};
+  if (at + kSoundRecSize > d.size()) return {};
   // The third byte is always zero in a well-formed record.
   if (d[at + soundRecSpare] != 0) return {};
   return {d[at + soundRec::sample], d[at + soundRec::note], d[at + soundRec::channel]};
@@ -80,7 +86,7 @@ Sfx readSfxNear(ByteView d, std::size_t at) {
 }
 
 TableSounds extractSounds(ByteView d, int tableIndex) {
-  const SoundAddresses& a = kTables[std::clamp(tableIndex, 0, 3)];
+  const SoundAddresses& a = kTables[std::clamp(tableIndex, 0, kTableCount - 1)];
   TableSounds s;
   s.flipper = readSfxNear(d, a.flipper);
   s.drained = readSfxNear(d, a.drained);

@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "core/Keys.h"
+#include "engine/Values.h"
 #include "engine/audio/MusicDriver.h"
 #include "engine/game/Recording.h"
 #include "engine/game/TableMusic.h"
@@ -48,7 +49,7 @@ class TableGame {
   u32 frames() const { return frames_; }
 
   /// No game is being played: the table waits for one.
-  bool waiting() const { return engine_->B(at::attract) == 0xff; }
+  bool waiting() const { return engine_->B(at::attract) == kSet; }
   /// Whether this key, pressed now, would start a game.
   bool startsGame(Key key) const;
   bool paused() const { return engine_->isPaused(); }
@@ -108,7 +109,7 @@ class TableGame {
   /// the music on by asking; from its thread.
   void sound(float* out, int frames);
   /// With no sound card, a frame's worth of the music is played to nobody instead.
-  void noSound() { music_.pass(1.0 / 60); }
+  void noSound() { music_.pass(1.0 / MusicDriver::kFrameRate); }
   /// The moment the next frame belongs to, in seconds of the steady clock: its sounds are
   /// heard a fixed time after it (MusicDriver::stampTime).
   void stampSound(double seconds) { music_.stampTime(seconds); }
@@ -152,7 +153,8 @@ class TableGame {
   bool optionsChanged_ = false, scoresChanged_ = false;
   bool asking_ = false, answered_ = false, sendOnline_ = false;
   u16 lastWait_ = 0;          ///< the display's wait a frame ago, to see the initials' end come
-  int leaving_ = 0x100;       ///< the table being left: how bright it still is, of 256 (cs:3a11)
+  static constexpr int kFullLevel = 0x100;  ///< all of the brightness, and of the music's volume
+  int leaving_ = kFullLevel;  ///< the table being left: how bright it still is, of 256 (cs:3a11)
   int lamps_ = 0;             ///< 0 as the game has them, 1 all lit, 2 all out
   /// Where the screen looks: this version's own following of the ball, the same for every
   /// size of screen (the table's own, cs:4018, is for its one size and is left to the rules).
@@ -167,8 +169,8 @@ class TableGame {
   int pauseFrames_ = 0;       ///< how long the pause's display has shown what it shows
   bool wasPaused_ = false;
   bool up_ = false, down_ = false;
-  std::array<std::array<u8, 33 * 0x54>, 4> display_{};  ///< the display as the frame began
-  u16 saidBefore_ = 0xffff;  ///< where the table said to look a frame ago, if it did
+  std::array<std::array<u8, TableScreen::kDisplayRows * TableScreen::kRowBytes>, TableScreen::kPlanes> display_{};  ///< the display as the frame began
+  u16 saidBefore_ = kNone;   ///< where the table said to look a frame ago, if it did
 };
 
 }  // namespace encore

@@ -10,12 +10,22 @@
 namespace encore {
 namespace {
 
-constexpr const char* kNames[4] = {"Party Land", "Speed Devils", "Billion Dollar Gameshow", "Stones 'n Bones"};
+constexpr int kTables = 4;
+constexpr const char* kNames[kTables] = {"Party Land", "Speed Devils", "Billion Dollar Gameshow", "Stones 'n Bones"};
 constexpr std::size_t kMaskBytes = static_cast<std::size_t>(TableData::kWidth / 8) * TableData::kHeight;  // 23040
 constexpr std::size_t kPlungerWidth = 10;
 constexpr std::size_t kPlungerHeight = 23;
 constexpr std::size_t kOcclusionGround = 0x580;
 constexpr std::size_t kOcclusionOverhead = 0x6400;
+/// The blocks told by their size: the ball's pictures (with the maps of what hides it after
+/// them), the ramps' mask, and the flippers' stacks, which are none of them larger than this.
+constexpr std::size_t kBallGraphicsBytes = 24448, kRampMaskBytes = 24192, kLargestFlipperBlock = 12000;
+/// The program has at least this many segments that its code names.
+constexpr std::size_t kFewestSegments = 20;
+/// A picture's file begins "FORM" and its length, and has more than these bytes.
+constexpr std::size_t kFormTag = 4, kSmallestForm = 12;
+constexpr int kCollisionMasks = 3;  ///< walls, dynamic, ramps
+constexpr int kStripRows = 144;     ///< the rows of each of the playfield's four strips
 
 }  // namespace
 
@@ -29,18 +39,18 @@ TableData TableData::parse(Bytes bytes, const std::string& file, int index) {
   const std::filesystem::path prg = file;
   TableData t;
   t.index = index;
-  t.name = kNames[std::clamp(index, 0, 3)];
+  t.name = kNames[std::clamp(index, 0, kTables - 1)];
   t.image = MzImage::parse(std::move(bytes), file);
   const MzImage& mz = t.image;
   const auto& segs = mz.segments();
-  if (segs.size() < 20) throw DataError(prg.string() + ": unexpected segment layout");
+  if (segs.size() < kFewestSegments) throw DataError(prg.string() + ": unexpected segment layout");
 
   // Block roles are recognised by position for the first four blocks and by size for the
   // rest, because the order of the sprite bank differs between tables (TABLE3 stores it
   // after the flipper stacks).
   auto view = [&](std::size_t k) { return mz.image().subspan(segs[k].offset, segs[k].length); };
   auto isForm = [&](std::size_t k) {
-    return segs[k].length > 12 && std::memcmp(mz.image().data() + segs[k].offset, "FORM", 4) == 0;
+    return segs[k].length > kSmallestForm && std::memcmp(mz.image().data() + segs[k].offset, "FORM", kFormTag) == 0;
   };
   std::size_t i = 0;
   t.code = view(i++);
@@ -60,7 +70,7 @@ TableData TableData::parse(Bytes bytes, const std::string& file, int index) {
       else if (collisionMasks == 1) t.dynamic = std::move(m);
       else if (collisionMasks == 2) t.ramps = std::move(m);
       ++collisionMasks;
-    } else if (len == 24448) {
+    } else if (len == kBallGraphicsBytes) {
       t.ballGraphics = view(i);
       // The two occlusion maps live at fixed offsets from the start of this block and run
       // past its end into the next one, so they are read straight from the load image.
@@ -69,23 +79,23 @@ TableData TableData::parse(Bytes bytes, const std::string& file, int index) {
         t.occlusionGround = Mask::fromPacked(spill.subspan(kOcclusionGround), kWidth, kHeight, kWidth / 8);
         t.occlusionOverhead = Mask::fromPacked(spill.subspan(kOcclusionOverhead), kWidth, kHeight, kWidth / 8);
       }
-    } else if (len == 24192) {
+    } else if (len == kRampMaskBytes) {
       t.rampMask = view(i);
-    } else if (len <= 12000) {
+    } else if (len <= kLargestFlipperBlock) {
       t.flipperBlocks.push_back(view(i));
     } else {
       t.spriteBank = view(i);
     }
   }
-  if (collisionMasks != 3) throw DataError(prg.string() + ": expected three collision masks");
+  if (collisionMasks != kCollisionMasks) throw DataError(prg.string() + ": expected three collision masks");
   // Four strips.
   t.playfield.assign(static_cast<std::size_t>(kWidth) * kHeight, 0);
-  for (int s = 0; s < 4; ++s) {
+  for (int s = 0; s < kStrips; ++s) {
     if (i >= segs.size()) throw DataError(prg.string() + ": missing image strip");
     auto img = decodeIff(view(i++));
     if (!img || img->width != kWidth) throw DataError(prg.string() + ": bad image strip");
-    const int rows = std::min(img->height, 144);
-    std::memcpy(t.playfield.data() + static_cast<std::size_t>(s) * 144 * kWidth, img->pixels.data(),
+    const int rows = std::min(img->height, kStripRows);
+    std::memcpy(t.playfield.data() + static_cast<std::size_t>(s) * kStripRows * kWidth, img->pixels.data(),
                 static_cast<std::size_t>(rows) * kWidth);
     t.strips[s] = std::move(*img);
   }
