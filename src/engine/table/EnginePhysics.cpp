@@ -8,13 +8,16 @@
 namespace encore {
 namespace {
 
+constexpr int kProbeCount = 44;
+constexpr u16 kPointBytes = 4;  ///< a point's x and y, at at::probePoints
+
 /// The 44 points round the ball that are tested, and the angle each stands for, in 2048ths of
 /// a turn from pointing right, clockwise (cs:8866 on, where each is its own instructions).
 struct ProbePoint {
   i8 dx, dy;
   i16 angle;
 };
-constexpr ProbePoint kProbes[44] = {
+constexpr ProbePoint kProbes[kProbeCount] = {
     {8, 0, 0x000},  {8, 1, 0x029},   {8, 2, 0x050},   {7, 3, 0x084},   {7, 4, 0x0a9},   {6, 5, 0x0e2},
     {5, 6, 0x11e},  {4, 7, 0x157},   {3, 7, 0x17c},   {2, 8, 0x1b0},   {1, 8, 0x1d7},   {0, 8, 0x200},
     {-1, 8, 0x229}, {-2, 8, 0x250},  {-3, 7, 0x284},  {-4, 7, 0x2a9},  {-5, 6, 0x2e2},  {-6, 5, 0x31e},
@@ -26,21 +29,31 @@ constexpr ProbePoint kProbes[44] = {
 };
 /// The order they are tested in: rows from the top down. The last to touch decides what the
 /// ball is taken to have hit.
-constexpr u8 kProbeOrder[44] = {35, 34, 33, 32, 31, 37, 36, 30, 29, 38, 28, 39, 27, 40, 26,
+constexpr u8 kProbeOrder[kProbeCount] = {35, 34, 33, 32, 31, 37, 36, 30, 29, 38, 28, 39, 27, 40, 26,
                                 41, 25, 42, 24, 43, 23, 0,  22, 1,  21, 2,  20, 3,  19, 4,
                                 18, 5,  17, 6,  16, 7,  8,  14, 15, 9,  10, 11, 12, 13};
 
 i16 clampTo(i16 v, i16 low, i16 highest) { return v < low ? low : v > highest ? highest : v; }
 
+/// The instructions of cs:59d9 that read the slopes' pulls across and down (koffset), at each
+/// screen mode.
+constexpr u16 pullXLowInsn = 0x5a2a, pullXHighInsn = 0x5a39;
+constexpr u16 pullYLowInsn = 0x5a31, pullYHighInsn = 0x5a40;
+
+/// What probeBall makes of the quarters touched: those that lie either side of pointing
+/// right, whose angles would average to pointing left.
+constexpr int kAcrossRight1 = ballAngles::q1 | ballAngles::q4, kAcrossRight2 = ballAngles::q1 | ballAngles::q2 | ballAngles::q4,
+              kAcrossRight3 = ballAngles::q1 | ballAngles::q3 | ballAngles::q4;
+
 }  // namespace
 
 /// cs:87c0
 void Engine::physicsSteps() {
-  if (CB(at::physicsBusy) == 0xff) return;
-  CB(at::physicsBusy) = 0xff;
-  const bool twice = !((B(at::keys) & B(at::inMidFrame)) & 4);
+  if (CB(at::physicsBusy) == kSet) return;
+  CB(at::physicsBusy) = kSet;
+  const bool twice = !((B(at::keys) & B(at::inMidFrame)) & keyBits::oneStep);
   for (int i = 0; i < (twice ? 2 : 1); ++i) {
-    if (B(at::ballHidden) == 0xff) {
+    if (B(at::ballHidden) == kSet) {
       spinDue_ = false;  // (put away, not sent off: it leaves later with the spin it has)
       stepsKept_ = 0;
       nudgeAndFlippers();
@@ -49,7 +62,7 @@ void Engine::physicsSteps() {
     }
     if (spinDue_ && drawsChance()) {
       // the spin of a ball put somewhere, drawn as it sets off from there
-      const u16 spin = chance(0x400, 0);
+      const u16 spin = chance(playfield::spinRange, 0);
       W(at::spin) = (spin & 1) ? static_cast<u16>(-spin) : spin;
     }
     spinDue_ = false;
@@ -65,18 +78,18 @@ bool Engine::maskBit(u16 partyLandSegment, int x, int y) {
   // As the original, nothing stops a place beyond an edge: it is a dot of the row above or
   // below, or of what lies beside the mask.
   const u16 column = static_cast<u16>(x);
-  return farB(S(partyLandSegment), static_cast<u16>(y * 0x28 + (column >> 3))) & (0x80 >> (column & 7));
+  return farB(S(partyLandSegment), static_cast<u16>(y * playfield::maskRow + (column >> 3))) & (0x80 >> (column & 7));
 }
 
 u8 Engine::copiedMask(int which, u16 offset) {
   // The original keeps pictures over parts of these copies, and so takes what the ball
   // touches there for something else than it is. Amended: the masks themselves are read.
-  if (amended) return farB(S(which == 0 ? at::marksRamps : which == 1 ? at::slopesRamps : at::slopesGround), offset);
+  if (amended) return farB(S(which == maskCopy::rampsMarks ? at::marksRamps : which == maskCopy::rampsSlopes ? at::slopesRamps : at::slopesGround), offset);
   const auto& plane = video_[offset & 3];
-  if (which == 0) return plane[static_cast<u16>(W(at::marksRampsCopy) + (offset >> 2))];
-  if (which == 1) return plane[static_cast<u16>(W(at::slopesRampsCopy) + (offset >> 2))];
+  if (which == maskCopy::rampsMarks) return plane[static_cast<u16>(W(at::marksRampsCopy) + (offset >> 2))];
+  if (which == maskCopy::rampsSlopes) return plane[static_cast<u16>(W(at::slopesRampsCopy) + (offset >> 2))];
   // the playfield's is in two pieces: its top rows beside the display, the rest after the others
-  if (offset < video::groundTopBytes) return plane[static_cast<u16>(((offset >> 4) + 1) * 0x50 + (offset >> 2) + video::picture)];
+  if (offset < video::groundTopBytes) return plane[static_cast<u16>(((offset >> 4) + 1) * video::rowShown + (offset >> 2) + video::picture)];
   return plane[static_cast<u16>(W(at::slopesGroundCopy) + (offset >> 2) - (video::groundTopBytes >> 2))];
 }
 
@@ -87,82 +100,82 @@ bool Engine::probeBall() {
   // sign, and reaches each point from there: with the ball at the table's left edge that is
   // 8 KB further on in the mask's segment, not the row's own start.
   const u32 left = static_cast<u16>(W(at::ballX) - 1);
-  const int cy = W(at::ballY).s() + W(at::nudgeLift).s() + 7;
+  const int cy = W(at::ballY).s() + W(at::nudgeLift).s() + (playfield::ballRadius - 1);
   u16 sum = 0;
   int count = 0, lowerHalf = 0, quadrants = 0, last = -1;
   for (u8 index : kProbeOrder) {
     const ProbePoint& p = kProbes[index];
-    const u32 x = left + static_cast<u32>(p.dx + 8);
-    if (!(farB(walls, static_cast<u16>((cy + p.dy) * 0x28 + (x >> 3))) & (0x80 >> (x & 7)))) continue;
+    const u32 x = left + static_cast<u32>(p.dx + playfield::ballRadius);
+    if (!(farB(walls, static_cast<u16>((cy + p.dy) * playfield::maskRow + (x >> 3))) & (0x80 >> (x & 7)))) continue;
     sum = static_cast<u16>(sum + p.angle);
     ++count;
     // (the point due left, at 0x400, is counted with the quarter below it: cs:8a2f)
-    if (p.angle <= 0x400) ++lowerHalf;
-    quadrants |= p.angle == 0x400 ? 2 : 1 << (p.angle >> 9);
+    if (p.angle <= ballAngles::left) ++lowerHalf;
+    quadrants |= p.angle == ballAngles::left ? ballAngles::q2 : 1 << (p.angle >> ballAngles::quarterShift);
     last = index;
   }
   // Touches either side of "pointing right" would average to pointing left.
-  if (quadrants == 0x9 || quadrants == 0xb || quadrants == 0xd) sum = static_cast<u16>(sum + (lowerHalf << 11));
+  if (quadrants == kAcrossRight1 || quadrants == kAcrossRight2 || quadrants == kAcrossRight3) sum = static_cast<u16>(sum + (lowerHalf << 11));
   if (count == 0) return false;
   B(at::contactProbes) = static_cast<u8>(count);
-  W(at::contactAngle) = static_cast<u16>((sum / count) & 0x7ff);
+  W(at::contactAngle) = static_cast<u16>((sum / count) & ballAngles::mask);
 
   // What was hit: the three planes under the last point that touched.
-  const int mx = W(at::probePoints, static_cast<u16>(last * 4)).s() + W(at::ballX).s() - 1;
-  int my = W(at::probePoints + 2, static_cast<u16>(last * 4)).s() + W(at::ballY).s() - 1;
-  if (my >= 0x240) return false;
+  const int mx = W(at::probePoints, static_cast<u16>(last * kPointBytes)).s() + W(at::ballX).s() - 1;
+  int my = W(at::probePoints + 2, static_cast<u16>(last * kPointBytes)).s() + W(at::ballY).s() - 1;
+  if (my >= playfield::rows) return false;
   my += W(at::nudgeLift).s();
   u8 material = 0;
-  const u16 place = static_cast<u16>(my * 0x28 + (static_cast<u16>(mx) >> 3));
+  const u16 place = static_cast<u16>(my * playfield::maskRow + (static_cast<u16>(mx) >> 3));
   const u8 bit = static_cast<u8>(0x80 >> (mx & 7));
-  if (B(at::layer) != 0xff) {
-    if (farB(S(at::marksGround), place) & bit) material |= 1;
-    if (farB(S(at::wallsGround), place) & bit) material |= 2;
-    if (copiedMask(2, place) & bit) material |= 4;
+  if (B(at::layer) != layers::ramps) {
+    if (farB(S(at::marksGround), place) & bit) material |= material::markBit;
+    if (farB(S(at::wallsGround), place) & bit) material |= material::wallBit;
+    if (copiedMask(maskCopy::groundSlopes, place) & bit) material |= material::slopeBit;
   } else {
-    if (farB(S(at::wallsRamps), place) & bit) material |= 2;
-    if (copiedMask(0, place) & bit) material |= 1;
-    if (copiedMask(1, place) & bit) material |= 4;
+    if (farB(S(at::wallsRamps), place) & bit) material |= material::wallBit;
+    if (copiedMask(maskCopy::rampsMarks, place) & bit) material |= material::markBit;
+    if (copiedMask(maskCopy::rampsSlopes, place) & bit) material |= material::slopeBit;
   }
   B(at::touchedMaterial) = material;
 
   // Where: the point of the 44 nearest the mean angle.
   // (an angle just short of the full turn rounds to a forty-fifth point, which the original
   // reads from whatever follows the list; amended: that is the first point again)
-  u16 nearest = static_cast<u16>(((u32{0x580} * W(at::contactAngle) + 0x8000) >> 16) * 4);
-  if (amended) nearest = static_cast<u16>(nearest % (44 * 4));
+  u16 nearest = static_cast<u16>(((u32{ballAngles::toProbe} * W(at::contactAngle) + 0x8000) >> 16) * kPointBytes);
+  if (amended) nearest = static_cast<u16>(nearest % (kProbeCount * kPointBytes));
   const u16 x = static_cast<u16>(W(at::probePoints, nearest) + W(at::ballX)), y = static_cast<u16>(W(at::probePoints + 2, nearest) + W(at::ballY));
   W(at::contactX) = x;
   W(at::contactY) = y;
   W(at::flipperVx) = 0;
   W(at::flipperVy) = 0;
   B(at::material) = material;
-  for (u16 i = 0; i < 10; ++i) B(at::materialGain, i) = B(at::materials, static_cast<u16>(material * 16 + i));
+  for (u16 i = 0; i < material::gains; ++i) B(at::materialGain, i) = B(at::materials, static_cast<u16>(material * material::size + i));
 
-  if (material == 7 || material == 3) {  // a bumper's plastic, a kicker's rubber: which one?
-    if (B(at::tilted) == 0xff) return true;
-    for (u16 e = material == 7 ? A(at::bumpers) : A(at::kickers); nativeW(e) != 0xffff; e = static_cast<u16>(e + zoneRec::size)) {
+  if (material == material::bumper || material == material::kicker) {  // a bumper's plastic, a kicker's rubber: which one?
+    if (B(at::tilted) == kSet) return true;
+    for (u16 e = material == material::bumper ? A(at::bumpers) : A(at::kickers); nativeW(e) != kNone; e = static_cast<u16>(e + zoneRec::size)) {
       if (x < nativeW(static_cast<u16>(e + zoneRec::xMin))) continue;
       if (y < nativeW(static_cast<u16>(e + zoneRec::yMin))) return true;  // as the original: above one ends the search
       if (x > nativeW(static_cast<u16>(e + zoneRec::xMax)) || y > nativeW(static_cast<u16>(e + zoneRec::yMax))) continue;
       W(at::bumperRecord) = nativeW(static_cast<u16>(e + zoneRec::then));
-      B(at::bumperPending) = 0xff;
+      B(at::bumperPending) = kSet;
       return true;
     }
     return true;
   }
-  if (material != 2) return true;
+  if (material != material::flipper) return true;
 
   // A flipper: how fast its surface is moving where the ball touches it.
   for (u16 f = A(at::flippers); nativeB(f) != 0; f = static_cast<u16>(f + flipperRec::size)) {
     auto w = [&](u16 o) { return nativeW(static_cast<u16>(f + o)); };
     if (x < w(flipperRec::ballXMin) || x > w(flipperRec::ballXMax) || y < w(flipperRec::ballYMin) || y > w(flipperRec::ballYMax)) continue;
     i16 dx = static_cast<i16>(x - w(flipperRec::originX));
-    const bool right = nativeB(f) == 1;
+    const bool right = nativeB(f) == flipperRec::right;
     if (right ? dx >= 0 : dx < 0) return true;  // the wrong side of its pivot
     i16 dy = static_cast<i16>(y - w(flipperRec::originY));
     i16 extra = 0;
-    if (w(flipperRec::upright) & 0xff) {  // a flipper that stands upright
+    if (w(flipperRec::upright) & kSet) {  // a flipper that stands upright
       std::swap(dx, dy);
       extra = static_cast<i16>(dy >> 1);
       if (extra < 0) extra = static_cast<i16>(-extra);
@@ -178,7 +191,7 @@ bool Engine::probeBall() {
     const i16 speed = static_cast<i16>(w(flipperRec::speed));
     W(at::flipperVy) = static_cast<u16>(speed * dx);
     W(at::flipperVx) = static_cast<u16>(speed * dy);
-    if (angle_ == 2) {  // this version's steeper table: a quarter more push
+    if (angle_ == tableAngle::steeper) {  // this version's steeper table: a quarter more push
       W(at::flipperVy) = static_cast<u16>(W(at::flipperVy).s() * 5 / 4);
       W(at::flipperVx) = static_cast<u16>(W(at::flipperVx).s() * 5 / 4);
     }
@@ -189,7 +202,7 @@ bool Engine::probeBall() {
 
 /// cs:8e95
 void Engine::bounce() {
-  if (debugWatch == -2)
+  if (debugWatch == kDebugTrace)
     std::fprintf(stderr, "[ours] bounce at (%d,%d) speed (%d,%d) angle %03x probes %d material %d contact (%d,%d) nudge %d\n", W(at::ballX).s(),
                  W(at::ballY).s(), W(at::ballVx).s(), W(at::ballVy).s(), static_cast<unsigned>(W(at::contactAngle)), B(at::contactProbes),
                  B(at::material), W(at::contactX).s(), W(at::contactY).s(), W(at::nudgeLift).s());
@@ -200,7 +213,7 @@ void Engine::bounce() {
 
   // Turned to the surface: along its normal, and along it. (The sines are of 14 bits; the
   // shifts leave twice the true speeds, which turning back undoes.)
-  const u16 back = static_cast<u16>(((0x800 - angle) & 0x7ff) * 2);
+  const u16 back = static_cast<u16>(((ballAngles::turn - angle) & ballAngles::mask) * 2);
   i32 cosine = W(at::cosines, back).s(), sine = W(at::sines, back).s();
   i16 normal = static_cast<i16>(static_cast<u32>((cosine * vx - sine * vy) << 3) >> 16);
   i16 along = static_cast<i16>(static_cast<u32>((sine * vx + cosine * vy) << 3) >> 16);
@@ -219,7 +232,7 @@ void Engine::bounce() {
     if (static_cast<u16>(glance) >= W(at::maxBounceAngle)) {
       normal = 0;  // too glancing
     } else if (B(at::bumperPending) != 0) {
-      if (B(at::material) != 3) {  // a bumper always throws the ball back
+      if (B(at::material) != material::kicker) {  // a bumper always throws the ball back
         normal = static_cast<i16>(normal + W(at::bumperSpeedBoost));
         kicked = true;
       } else if (normal <= W(at::kickerSpeedThreshold).s()) {  // a kicker only when hit hard enough
@@ -238,7 +251,7 @@ void Engine::bounce() {
   i32 alongWhole = 0;
   if (wholeGains) {
     i32 wide = gain, wideSpin = spinGain;
-    if (normal >= -1023) {
+    if (normal >= bounces::softBelow) {
       const i32 soft = (-normal >> 6) + 1;
       wide *= soft;
       wideSpin *= soft;
@@ -248,7 +261,7 @@ void Engine::bounce() {
     W(at::spin) -= static_cast<u16>(static_cast<i16>(wideSpin != 0 ? slip / wideSpin : slip));
     alongWhole = alongWhole * 0x800 / 0x801;
   } else {
-  if (normal >= -1023) {
+  if (normal >= bounces::softBelow) {
     const u16 soft = static_cast<u16>((static_cast<i16>(-normal) >> 6) + 1);
     gain = static_cast<i16>(static_cast<u16>(soft * static_cast<u16>(gain)));
     spinGain = static_cast<i16>(static_cast<u16>(soft * static_cast<u16>(spinGain)));
@@ -270,7 +283,7 @@ void Engine::bounce() {
   W(at::ballVx) = static_cast<u16>(clampTo(nvx, lowest, highest));
   W(at::ballVy) = static_cast<u16>(clampTo(nvy, lowest, highest));
 
-  if (B(at::contactProbes) >= 6) {  // deep in: a quarter of a dot back out along the normal
+  if (B(at::contactProbes) >= bounces::deepProbes) {  // deep in: a quarter of a dot back out along the normal
     auto push = [this](u16 fixed, i32 unit) {
       const i32 by = static_cast<i16>(static_cast<u32>(i32{-1024} * unit) >> 16);
       const u32 v = (u32{W(fixed)} | (u32{W(fixed, 2)} << 16)) + static_cast<u32>(by);
@@ -287,9 +300,9 @@ void Engine::nudgeAndFlippers() {
   if (B(at::spaceHeld) != 0) {  // the space bar is held: the table rises
     W(at::tableVelocity) = W(at::pushSpeedAttack);
     W(at::nudgeAccumulator) += W(at::tableVelocity);
-    if (W(at::nudgeAccumulator) > 0x800) {
+    if (W(at::nudgeAccumulator) > nudge::highest) {
       W(at::tableVelocity) = 0;
-      W(at::nudgeAccumulator) = 0x800;
+      W(at::nudgeAccumulator) = nudge::highest;
     }
   } else {
     W(at::tableVelocity) = W(at::pushSpeedRelease);
@@ -304,8 +317,8 @@ void Engine::nudgeAndFlippers() {
   for (u16 f = A(at::flippers);; f = static_cast<u16>(f + flipperRec::size)) {
     auto w = [&](u16 o) { return nativeW(static_cast<u16>(f + o)); };
     const u8 side = nativeB(f);
-    if (side != 1 && side != 2) return;
-    const bool held = (B(at::keys) & (side == 2 ? 2 : 1)) && B(at::flippersLive) != 0;
+    if (side != flipperRec::right && side != flipperRec::left) return;
+    const bool held = (B(at::keys) & (side == flipperRec::left ? keyBits::leftFlipper : keyBits::rightFlipper)) && B(at::flippersLive) != 0;
     i16 speed = static_cast<i16>(w(flipperRec::speed) + w(held ? flipperRec::accelHeld : flipperRec::accelLetGo));
     if (held && speed > w(flipperRec::speedHeldMax).s()) speed = w(flipperRec::speedHeldMax).s();
     w(flipperRec::speed) = static_cast<u16>(speed);
@@ -331,10 +344,10 @@ void Engine::integrate() {
     const i32 v = static_cast<i32>(u32{W(fixed)} | (u32{W(fixed, 2)} << 16)) + W(speed).s();
     W(fixed) = static_cast<u16>(v);
     W(fixed, 2) = static_cast<u16>(static_cast<u32>(v) >> 16);
-    return static_cast<u16>(v / 0x400);
+    return static_cast<u16>(v / playfield::fixedOne);
   };
   W(at::ballY) = move(at::ballYFixed, at::ballVy);
-  if (W(at::ballY).s() >= 0x240) B(at::ballLost) = 0xff;
+  if (W(at::ballY).s() >= playfield::rows) B(at::ballLost) = kSet;
   W(at::ballX) = move(at::ballXFixed, at::ballVx);
   for (std::size_t i = 1; i < kSteps; ++i) steps_[i - 1] = steps_[i];
   if (stepsKept_ < kSteps) ++stepsKept_;
@@ -343,8 +356,8 @@ void Engine::integrate() {
   W(at::ballVy) += W(at::gravityY);
   W(at::ballVx) += W(at::gravityX);
   const i16 spin = W(at::spin).s();
-  if (spin > 0) W(at::spin) = static_cast<u16>(spin - 2 > 0 ? spin - 2 : 0);
-  else if (spin < 0) W(at::spin) = static_cast<u16>(spin + 2 < 0 ? spin + 2 : 0);
+  if (spin > 0) W(at::spin) = static_cast<u16>(spin - playfield::spinDecay > 0 ? spin - playfield::spinDecay : 0);
+  else if (spin < 0) W(at::spin) = static_cast<u16>(spin + playfield::spinDecay < 0 ? spin + playfield::spinDecay : 0);
 }
 
 /// cs:9106: a flipper is part of the wall. While the ball is near one, the picture of where
@@ -362,8 +375,8 @@ void Engine::stampFlippers() {
     nativeB(static_cast<u16>(f + flipperRec::pictureStamped)) = static_cast<u8>(picture);
     const u16 width = static_cast<u16>(w(flipperRec::width) * 2), rows = w(flipperRec::rows), from = w(flipperRec::masks), walls = S(at::wallsGround);
     u16 source = static_cast<u16>(w(flipperRec::maskStep) * picture);
-    u16 to = static_cast<u16>(w(flipperRec::y) * 0x28 + (w(flipperRec::x) >> 3));
-    for (u16 r = 0; r < rows; ++r, to = static_cast<u16>(to + 0x28))
+    u16 to = static_cast<u16>(w(flipperRec::y) * playfield::maskRow + (w(flipperRec::x) >> 3));
+    for (u16 r = 0; r < rows; ++r, to = static_cast<u16>(to + playfield::maskRow))
       for (u16 b = 0; b < width; ++b) {
         const u8 v = farB(from, source++);
         farB(walls, static_cast<u16>(to + b)) = v;
@@ -377,7 +390,7 @@ void Engine::afterSteps() {
   bumperEvent();
   pickGravity();
   changeLayer();
-  if (B(at::ballLost) == 0xff && B(at::betweenBalls) != 0xff) {
+  if (B(at::ballLost) == kSet && B(at::betweenBalls) != kSet) {
     call(F(at::tableDrained));
     lostParked_ = true;
   }
@@ -389,7 +402,7 @@ void Engine::bumperEvent() {
   B(at::bumperPending) = 0;
   const u16 record = W(at::bumperRecord);
   addScore(A(at::score), static_cast<u16>(record + 2));
-  B(at::scoredThisBall) = 0xff;
+  B(at::scoredThisBall) = kSet;
   const u16 noise = nativeW(record);
   sound->effect(nativeB(static_cast<u16>(noise + soundRec::sample)), nativeB(static_cast<u16>(noise + soundRec::note)), 0,
                 static_cast<u8>(nativeB(static_cast<u16>(noise + soundRec::channel)) + 1));
@@ -399,8 +412,8 @@ void Engine::bumperEvent() {
 /// cs:59d9: the pull on the ball where it is. The planes that are not about solidity carry,
 /// for each stretch of eight dots, which of the table's slopes it lies on.
 void Engine::pickGravity() {
-  u16 at = static_cast<u16>((static_cast<u16>(W(at::ballX) + 8) >> 3) + (W(at::ballY) + 8) * 0x28 - 1);
-  const bool ground = B(at::layer) != 0xff;
+  u16 at = static_cast<u16>((static_cast<u16>(W(at::ballX) + playfield::ballRadius) >> 3) + (W(at::ballY) + playfield::ballRadius) * playfield::maskRow - 1);
+  const bool ground = B(at::layer) != layers::ramps;
   if (amended) {
     // The original reads the slopes from copies of the masks it keeps in the video card's
     // memory, over parts of which it also keeps pictures, and looks for a stretch with nothing
@@ -409,27 +422,27 @@ void Engine::pickGravity() {
     // (a lost ball is put away wherever each table has room for it, and the next one would set
     // off with the pull of that place; amended: with the pull of the bottom of the table,
     // where it was lost)
-    const int x = (lostParked_ ? 280 : W(at::ballX).s()) + 8, y = (lostParked_ ? 525 : W(at::ballY).s()) + 8;
-    if (x < 0 || x >= 320 || y < 0 || y >= 0x240) return;
-    const u8 slope = slopes_[ground ? 0 : 1][static_cast<std::size_t>(y * 0x28 + (x >> 3))];
+    const int x = (lostParked_ ? playfield::drainedX : W(at::ballX).s()) + playfield::ballRadius, y = (lostParked_ ? playfield::drainedY : W(at::ballY).s()) + playfield::ballRadius;
+    if (x < 0 || x >= playfield::width || y < 0 || y >= playfield::rows) return;
+    const u8 slope = slopes_[ground ? 0 : 1][static_cast<std::size_t>(y * playfield::maskRow + (x >> 3))];
     if (slope >= cs_[static_cast<u16>(F(at::slopeCount) + 2)]) return;
-    W(at::gravityX) = nativeW(static_cast<u16>(koffset(high() ? 0x5a39 : 0x5a2a) + slope * 4));
-    W(at::gravityY) = nativeW(static_cast<u16>(koffset(high() ? 0x5a40 : 0x5a31) + slope * 4));
+    W(at::gravityX) = nativeW(static_cast<u16>(koffset(high() ? pullXHighInsn : pullXLowInsn) + slope * slopeRec::size));
+    W(at::gravityY) = nativeW(static_cast<u16>(koffset(high() ? pullYHighInsn : pullYLowInsn) + slope * slopeRec::size));
     return;
   }
   for (int i = 0; i < 3; ++i, ++at) {
     u8 solid = 0, slope = 0;
     if (ground) {
       solid = farB(S(at::marksGround), at) | farB(S(at::wallsGround), at);
-      slope = copiedMask(2, at) & 0x0f;
+      slope = copiedMask(maskCopy::groundSlopes, at) & slopeRec::number;
     } else {
-      solid = copiedMask(0, at) | farB(S(at::wallsRamps), at);
-      slope = copiedMask(1, at) & 0x0f;
+      solid = copiedMask(maskCopy::rampsMarks, at) | farB(S(at::wallsRamps), at);
+      slope = copiedMask(maskCopy::rampsSlopes, at) & slopeRec::number;
     }
     if (solid != 0) continue;
     if (slope >= cs_[static_cast<u16>(F(at::slopeCount) + 2)]) return;  // more than the table has
-    W(at::gravityX) = nativeW(static_cast<u16>(koffset(high() ? 0x5a39 : 0x5a2a) + slope * 4));
-    W(at::gravityY) = nativeW(static_cast<u16>(koffset(high() ? 0x5a40 : 0x5a31) + slope * 4));
+    W(at::gravityX) = nativeW(static_cast<u16>(koffset(high() ? pullXHighInsn : pullXLowInsn) + slope * slopeRec::size));
+    W(at::gravityY) = nativeW(static_cast<u16>(koffset(high() ? pullYHighInsn : pullYLowInsn) + slope * slopeRec::size));
     return;
   }
 }
@@ -437,8 +450,8 @@ void Engine::pickGravity() {
 /// cs:5d24: ramps have no height: the ball is on one or the other of two sets of masks, and
 /// changes over inside certain rectangles. Which list is looked at depends on where it is now.
 void Engine::changeLayer() {
-  const u16 x = static_cast<u16>(W(at::ballX) + 8), y = static_cast<u16>(W(at::ballY) + 8 + W(at::nudgeLift));
-  for (u16 e = B(at::layer) == 0xff ? A(at::transitionsDown) : A(at::transitionsUp); nativeW(e) != 0xffff; e = static_cast<u16>(e + 8)) {
+  const u16 x = static_cast<u16>(W(at::ballX) + playfield::ballRadius), y = static_cast<u16>(W(at::ballY) + playfield::ballRadius + W(at::nudgeLift));
+  for (u16 e = B(at::layer) == layers::ramps ? A(at::transitionsDown) : A(at::transitionsUp); nativeW(e) != kNone; e = static_cast<u16>(e + zoneRec::boxOnly)) {
     if (x < nativeW(static_cast<u16>(e + zoneRec::xMin)) || y < nativeW(static_cast<u16>(e + zoneRec::yMin)) || x > nativeW(static_cast<u16>(e + zoneRec::xMax)) || y > nativeW(static_cast<u16>(e + zoneRec::yMax)))
       continue;
     B(at::layer) = static_cast<u8>(~B(at::layer));
@@ -459,7 +472,7 @@ void Engine::runRules() {
   }
   if (amended) {  // (how long the ball in play has stood still, as of this frame: for freeTrappedBall)
     const i16 x = W(at::ballX).s(), y = W(at::ballY).s();
-    restFrames_ = B(at::ballHidden) != 0xff && x == restX_ && y == restY_ ? restFrames_ + 1 : 0;
+    restFrames_ = B(at::ballHidden) != kSet && x == restX_ && y == restY_ ? restFrames_ + 1 : 0;
     restX_ = x, restY_ = y;
   }
   displayFlash();
@@ -475,7 +488,7 @@ void Engine::runRules() {
 /// rolling through; and as a ball resting there never left before, no game that was ever
 /// finished plays any differently.
 void Engine::freeTrappedBall() {
-  if (restFrames_ < 60) return;
+  if (restFrames_ < frames::trappedRest) return;
   for (const Trap& t : traps_) {
     if (restX_ < t.left || restX_ > t.right || restY_ < t.top || restY_ > t.bottom) continue;
     W(at::ballVx) = static_cast<u16>(t.vx);
@@ -486,10 +499,10 @@ void Engine::freeTrappedBall() {
 
 /// cs:5d70: rectangles the ball rolls into, each with the routine to run when it does.
 void Engine::rollTriggers() {
-  const u16 x = static_cast<u16>(W(at::ballX) + 8), y = static_cast<u16>(W(at::ballY) + 8 + W(at::nudgeLift));
-  const bool ramps = B(at::layer) == 0xff;
+  const u16 x = static_cast<u16>(W(at::ballX) + playfield::ballRadius), y = static_cast<u16>(W(at::ballY) + playfield::ballRadius + W(at::nudgeLift));
+  const bool ramps = B(at::layer) == layers::ramps;
   u16 e = ramps ? A(at::rollTriggersRamps) : A(at::rollTriggersGround);
-  if (B(at::tilted) == 0xff) e = ramps ? A(at::rollTriggersRampsTilted) : A(at::rollTriggersGroundTilted);
+  if (B(at::tilted) == kSet) e = ramps ? A(at::rollTriggersRampsTilted) : A(at::rollTriggersGroundTilted);
   for (; nativeW(e) != 0; e = static_cast<u16>(e + zoneRec::size)) {
     if (x < nativeW(static_cast<u16>(e + zoneRec::xMin)) || y < nativeW(static_cast<u16>(e + zoneRec::yMin)) || x > nativeW(static_cast<u16>(e + zoneRec::xMax)) || y > nativeW(static_cast<u16>(e + zoneRec::yMax)))
       continue;
@@ -505,12 +518,12 @@ void Engine::rollTriggers() {
 
 /// cs:5cb9: rectangles in which touching something solid counts, on the playfield only.
 void Engine::hitTriggers() {
-  if (B(at::tilted) == 0xff) return;
+  if (B(at::tilted) == kSet) return;
   if (W(at::contactX) == 0 && W(at::contactY) == 0) return;
   const u16 x = W(at::contactX), y = static_cast<u16>(W(at::contactY) + W(at::nudgeLift));
   W(at::contactX) = 0;
   W(at::contactY) = 0;
-  if (B(at::layer) == 0xff) return;
+  if (B(at::layer) == layers::ramps) return;
   for (u16 e = A(at::hitTriggerList); nativeW(e) != 0; e = static_cast<u16>(e + zoneRec::size)) {
     if (x < nativeW(static_cast<u16>(e + zoneRec::xMin)) || y < nativeW(static_cast<u16>(e + zoneRec::yMin)) || x > nativeW(static_cast<u16>(e + zoneRec::xMax)) || y > nativeW(static_cast<u16>(e + zoneRec::yMax)))
       continue;
@@ -522,11 +535,11 @@ void Engine::hitTriggers() {
 /// The plunger (cs:5e0d while it is pulled or at rest, cs:5e6a when it is let go).
 void Engine::bindPlunger() {
   auto shown = [this] {  // cs:6600, less its drawing
-    const i8 v = static_cast<i8>((B(at::plungerPull) >> 1) - 3);
+    const i8 v = static_cast<i8>((B(at::plungerPull) >> 1) - plunger::pictureLag);
     B(at::plungerShown) = v < 0 ? 0 : static_cast<u8>(v);
   };
   bind(at::plungerPulling, [=, this] {
-    if (B(at::plungerHeld) != 0 && B(at::plungerPull) < 0x20) {
+    if (B(at::plungerHeld) != 0 && B(at::plungerPull) < plunger::pullMost) {
       ++B(at::plungerPull);
       shown();
     }
@@ -534,15 +547,15 @@ void Engine::bindPlunger() {
   bind(at::plungerLetGo, [=, this] {
     if (const u8 pull = B(at::plungerPull); pull != 0) {
       if (B(at::ballOnPlunger) != 0) {  // a ball waits on it
-        i16 speed = static_cast<i16>((high() ? -166 : -138) * pull - chance(0x100, W(at::loopCounter) & 0xff));
-        if (angle_ == 2) speed = static_cast<i16>(speed * 5 / 4);  // this version's steeper table
-        if (B(at::loopCounter, 2) != 0xff) {
+        i16 speed = static_cast<i16>((high() ? plunger::speedHigh : plunger::speedLow) * pull - chance(plunger::speedChance, W(at::loopCounter) & (plunger::speedChance - 1)));
+        if (angle_ == tableAngle::steeper) speed = static_cast<i16>(speed * 5 / 4);  // this version's steeper table
+        if (B(at::loopCounter, 2) != kSet) {  // (that is at::codeChanged)
           W(at::ballVy) = static_cast<u16>(speed);
           W(at::ballVx) = 0;
         }
-        W(at::spin) = chance(0x10, W(at::loopCounter) & 0x0f);
+        W(at::spin) = chance(plunger::spinChance, W(at::loopCounter) & (plunger::spinChance - 1));
       }
-      const u8 volume = static_cast<u8>((pull << 6) / 0x20);
+      const u8 volume = static_cast<u8>((pull << plunger::volumeShift) / plunger::pullMost);
       sound->effect(B(at::soundSpringUp), B(at::soundSpringUp + 1), volume, static_cast<u8>(B(at::soundSpringUp + 3) + 1));
       B(at::plungerPull) = 0;
       shown();

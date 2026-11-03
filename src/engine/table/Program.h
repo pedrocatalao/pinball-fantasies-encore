@@ -17,6 +17,7 @@
 
 #include "core/Error.h"
 #include "core/Types.h"
+#include "engine/Values.h"
 
 namespace encore {
 
@@ -24,6 +25,27 @@ namespace encore {
 namespace at {
 #include "engine/table/Names.inc"
 }
+
+/// A DOS program's header (an .EXE's, which TABLEn.PRG is): where its fields are, in bytes.
+namespace mz {
+constexpr std::size_t leastBytes = 0x200;  ///< a header's page: a program is no shorter
+constexpr std::size_t relocations = 6;  ///< word: how many segment values DOS is to adjust
+constexpr std::size_t headerParagraphs = 8;  ///< word: the header's size
+constexpr std::size_t relocationTable = 0x18;  ///< word: where their places are listed,
+constexpr std::size_t relocationSize = 4;  ///< each an offset and a segment
+constexpr std::size_t paragraph = 16;  ///< bytes of a paragraph, which a segment value counts in
+constexpr std::size_t segmentBytes = 0x10000;
+}  // namespace mz
+
+/// The 8086's instructions, as far as the engine reads the program's own: the ones its
+/// pictures that are code are made of.
+namespace x86 {
+constexpr u8 ret = 0xc3;
+constexpr u8 movByte = 0x88;  ///< mov r/m8, r8
+constexpr u8 regAh = 0x20;  ///< in its ModR/M byte, AH as the register (AL without it)
+constexpr u8 atBx = 0x07, atBxDisp8 = 0x47, atBxDisp16 = 0x87;  ///< [bx], [bx+d8], [bx+d16]
+constexpr u8 modDisp8 = 1;  ///< a ModR/M byte's mode for an offset of one byte
+}  // namespace x86
 
 class Program {
  public:
@@ -48,6 +70,7 @@ class Program {
     u8* p_;
   };
 
+  static constexpr int kTables = 4;
   /// `prg` is the whole TABLEn.PRG; `table` 0 to 3.
   Program(ByteView prg, int table);
   virtual ~Program() = default;
@@ -75,8 +98,8 @@ class Program {
   /// segment begin inside them (the Gameshow's map of where the ball is hidden does): what is
   /// there is the same memory.
   u8& farB(u16 nativeSegment, u16 offset) {
-    const std::size_t at = (std::size_t{static_cast<u16>(nativeSegment - kLoadSegment)} * 16 + offset) % image_.size();
-    if (const std::size_t d = at - std::size_t{dataSegment_} * 16; d < 0x10000) return ds_[d];
+    const std::size_t at = (std::size_t{static_cast<u16>(nativeSegment - kLoadSegment)} * mz::paragraph + offset) % image_.size();
+    if (const std::size_t d = at - std::size_t{dataSegment_} * mz::paragraph; d < mz::segmentBytes) return ds_[d];
     return image_[at];
   }
   Word farW(u16 nativeSegment, u16 offset) { return Word(&farB(nativeSegment, offset)); }
@@ -96,7 +119,7 @@ class Program {
   /// as this table's instruction has it, whether it wrote it in one byte or two.
   u16 koffset(u16 instruction) const {
     const u8 modrm = kb(instruction, 1);
-    return (modrm >> 6) == 1 ? static_cast<u16>(static_cast<i8>(kb(instruction, 2))) : kw(instruction, 2);
+    return (modrm >> 6) == x86::modDisp8 ? static_cast<u16>(static_cast<i8>(kb(instruction, 2))) : kw(instruction, 2);
   }
   u16 kw(u16 instruction, int offset) const { return static_cast<u16>(kb(instruction, offset) | (kb(instruction, offset + 1) << 8)); }
 
@@ -125,12 +148,14 @@ class Program {
   std::vector<u8>& image() { return image_; }
   /// Segment values as the program's listing has them.
   u16 dataSegment() const { return dataSegment_; }
-  /// For reports: Party Land's address for one of this table's, or 0xffff.
+  /// For reports: Party Land's address for one of this table's, or kNone.
   u16 partyLandData(u16 native) const;
 
   /// For finding a mistake: a place in the data segment; each routine reached through a
   /// pointer that changes it is said on stderr.
   int debugWatch = -1;
+  /// debugWatch's value that has each bounce and each score added said on stderr instead.
+  static constexpr int kDebugTrace = -2;
 
   // What the original passes between routines in registers, for those reached through
   // pointers: a script's place in BX, a task's answer in SI, and so on.
