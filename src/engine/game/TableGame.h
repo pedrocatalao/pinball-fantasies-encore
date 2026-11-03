@@ -48,7 +48,7 @@ class TableGame {
   u32 frames() const { return frames_; }
 
   /// No game is being played: the table waits for one.
-  bool waiting() const { return engine_->B(0x3713) == 0xff; }
+  bool waiting() const { return engine_->B(at::attract) == 0xff; }
   /// Whether this key, pressed now, would start a game.
   bool startsGame(Key key) const;
   bool paused() const { return engine_->isPaused(); }
@@ -56,9 +56,9 @@ class TableGame {
   bool left() const { return (engine_->exited() && leaving_ <= 0) || !failure_.empty(); }
   /// What went wrong, if the table stopped because something did.
   const std::string& failure() const { return failure_; }
-  int players() const { return engine_->B(0x3716); }
-  int player() const { return engine_->B(0x371a); }
-  int ball() const { return engine_->B(0x33dc); }
+  int players() const { return engine_->B(at::players); }
+  int player() const { return engine_->B(at::player); }
+  int ball() const { return engine_->B(at::ball); }
   Bcd score(int player) const;
 
   /// How the game this table recorded was really played, as the engine had it from its first
