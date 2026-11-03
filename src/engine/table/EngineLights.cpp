@@ -21,7 +21,7 @@ void Engine::lightOn(u8 light) { queueColours(W(at::lightRecords, static_cast<u1
 void Engine::lightOff(u8 light) { queueColours(W(at::lightRecords, static_cast<u16>((light - 1) * 2)), true); }
 
 void Engine::setLight(u8 light) {
-  B(at::lightStates, light) = 0xff;
+  B(at::lightStates, light) = kSet;
   lightOn(light);
 }
 
@@ -71,9 +71,9 @@ void Engine::runBlinks() {
 }
 
 void Engine::flushColours() {
-  if (B(at::coloursBusy) == 0xff) return;
-  B(at::coloursBusy) = 0xff;
-  if (CB(at::fading) != 0xff) {
+  if (B(at::coloursBusy) == kSet) return;
+  B(at::coloursBusy) = kSet;
+  if (CB(at::fading) != kSet) {
     for (u16 at = A(at::colourQueue); at != W(at::colourQueueEnd);) {
       B(at::coloursInterrupted) = 0;
       std::size_t colour = std::size_t{nativeB(at++)} * 3;
@@ -88,7 +88,7 @@ void Engine::flushColours() {
 /// cs:622d: the lights' show while no game is played. Each entry counts up; at one count its
 /// light goes out, at another it comes on and the count starts again.
 void Engine::attractLights() {
-  for (u16 e = A(at::attractLightList); nativeW(e) != 0xffff; e = static_cast<u16>(e + attractRec::size)) {
+  for (u16 e = A(at::attractLightList); nativeW(e) != kNone; e = static_cast<u16>(e + attractRec::size)) {
     const u16 count = static_cast<u16>(nativeW(e) + 1);
     nativeW(e) = count;
     if (count == nativeW(static_cast<u16>(e + attractRec::offAt))) {
@@ -101,10 +101,10 @@ void Engine::attractLights() {
 }
 
 void Engine::displayFlash() {
-  if (B(at::flashing) != 0xff) return;
+  if (B(at::flashing) != kSet) return;
   if (--W(at::flashCount) != 0) return;
   W(at::flashCount) = W(at::flashPeriod);
-  W(at::flashPhase) = W(at::flashPhase) ^ 0xff;
+  W(at::flashPhase) = W(at::flashPhase) ^ kSet;
   queueColours(W(at::flashPhase) == 0 ? A(at::displayColoursOff) : A(at::displayColoursOn), false);
 }
 

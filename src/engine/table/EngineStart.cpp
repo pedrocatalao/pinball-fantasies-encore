@@ -8,6 +8,14 @@ namespace {
 /// The original's "times five, divided by six", for the slower of the two screen modes.
 u16 fiveSixths(u16 v) { return static_cast<u16>((5 * i32{static_cast<i16>(v)}) / 6); }
 
+/// The four strips of the table's picture are IFF files: the colours follow "CMAP" and the
+/// chunk's length. A strip is not looked into further than this.
+constexpr int kStripSearched = 0x8000;
+/// The two words that start-up clears and nothing else reads or writes.
+constexpr u16 kUnusedA = 0x3706, kUnusedB = 0x370e;
+/// A flipper's note of the picture last put into the mask, as none has been.
+constexpr u8 kNoPicture = 0xff;
+
 }  // namespace
 
 void Engine::start(const Options& o, ByteView bestScores) {
@@ -17,16 +25,16 @@ void Engine::start(const Options& o, ByteView bestScores) {
   B(at::optionMusicOff) = o.musicOff;
   B(at::optionHighResolution) = o.highResolution;
   B(at::optionMono) = o.mono;
-  B(at::highResolution) = o.highResolution ? 0xff : 0;
-  angle_ = o.lowAngle ? 0 : 1;
+  B(at::highResolution) = o.highResolution ? kSet : 0;
+  angle_ = o.lowAngle ? tableAngle::low : tableAngle::high;
   if (o.lowAngle) {  // cs:30e9: the table lies flatter: less pull down it on every slope
     const u16 slopes = high() ? kw(at::slopesHighInsn, 1) : kw(at::slopesLowInsn, 1);
-    for (u16 i = 0, n = kw(at::slopeCountInsn, 1); i < n; ++i) nativeW(static_cast<u16>(slopes + i * 4 + 2)) -= 3;
+    for (u16 i = 0, n = kw(at::slopeCountInsn, 1); i < n; ++i) nativeW(static_cast<u16>(slopes + i * slopeRec::size + slopeRec::pullY)) -= slopeRec::lowAngle;
   }
   B(at::balls) = o.fiveBalls ? 5 : 3;
   if (o.musicOff) musicKey();
-  W(at::scrollSpeed) = o.scrolling < 1 ? 0x14 : o.scrolling == 1 ? 0x0b : 0x09;
-  if (o.scrolling < 1) B(at::scrollKey) = 0;
+  W(at::scrollSpeed) = o.scrolling < scrollOption::medium ? 0x14 : o.scrolling == scrollOption::medium ? 0x0b : 0x09;
+  if (o.scrolling < scrollOption::medium) B(at::scrollKey) = 0;
 
   // cs:69bb: the sines are kept high byte first
   for (u16 i = 0; i < 0x0a00; ++i) {
@@ -35,17 +43,17 @@ void Engine::start(const Options& o, ByteView bestScores) {
     B(at::sines, static_cast<u16>(i * 2 + 1)) = a;
   }
   W(at::longMsgText) = A(at::demoMessage);  // cs:6e7c
-  W(at::longMsgPlace) = 0x2a0;
-  CW(at::longMsgAtA) = 0xa8;
-  CW(at::longMsgAtB) = 0xa8;
+  W(at::longMsgPlace) = display::longMsgPlace;
+  CW(at::longMsgAtA) = display::top;
+  CW(at::longMsgAtB) = display::top;
   if (!high()) {  // cs:3106: everything about speed is for 70 frames a second
-    for (u16 i = 0; i < 8; ++i) W(at::materials, static_cast<u16>(i * 16 + 6)) = fiveSixths(W(at::materials, static_cast<u16>(i * 16 + 6)));
+    for (u16 i = 0; i < 8; ++i) W(at::materials, static_cast<u16>(i * material::size + material::minBounceSpeed)) = fiveSixths(W(at::materials, static_cast<u16>(i * material::size + material::minBounceSpeed)));
     for (u16 a = at::speedMin; a <= at::pushSpeedRelease; a = static_cast<u16>(a + 2)) W(a) = fiveSixths(W(a));
   }
   W(at::task) = F(at::defaultTask);  // cs:63c8
   W(at::taskState) = 0;
   startScript(A(at::scriptInit));
-  for (u16 i = 0; i < 12; ++i) B(at::scoreDrawn, i) = 0x12;
+  for (u16 i = 0; i < 12; ++i) B(at::scoreDrawn, i) = display::scoreNotDrawn;
   W(at::scoreDrawnGroups) = 0;
 
   // cs:69cb: the two maps of where the ball is hidden, moved to rows of 42 bytes
@@ -62,7 +70,7 @@ void Engine::start(const Options& o, ByteView bestScores) {
   for (u16 strip : {at::tablePicture1, at::tablePicture2, at::tablePicture3, at::tablePicture4}) {
     const u16 picture = S(strip);
     u16 at = 0;
-    while (at < 0x8000 && !(farB(picture, at) == 'C' && farB(picture, static_cast<u16>(at + 1)) == 'M' &&
+    while (at < kStripSearched && !(farB(picture, at) == 'C' && farB(picture, static_cast<u16>(at + 1)) == 'M' &&
                             farB(picture, static_cast<u16>(at + 2)) == 'A' && farB(picture, static_cast<u16>(at + 3)) == 'P'))
       ++at;
     at = static_cast<u16>(at + 8);
@@ -87,7 +95,7 @@ void Engine::start(const Options& o, ByteView bestScores) {
     for (u16 i = 0; i < bytes; ++i, ++at) nativeB(at) = static_cast<u8>((nativeB(at) * 0xa2) >> 8);
   }
   // cs:627f: the attract show's times, kept as gaps, become times
-  for (u16 e = A(at::attractLightList); nativeW(e) != 0xffff; e = static_cast<u16>(e + attractRec::size)) {
+  for (u16 e = A(at::attractLightList); nativeW(e) != kNone; e = static_cast<u16>(e + attractRec::size)) {
     nativeW(static_cast<u16>(e + attractRec::offAt)) += nativeW(static_cast<u16>(e + attractRec::restart));
     nativeW(static_cast<u16>(e + attractRec::onAt)) += nativeW(static_cast<u16>(e + attractRec::offAt));
   }
@@ -111,7 +119,7 @@ void Engine::start(const Options& o, ByteView bestScores) {
     const u16 first = A(at::flippers);
     nativeW(static_cast<u16>(first + flipperRec::masks)) = S(at::leftFlipperMasks);
     nativeW(static_cast<u16>(first + flipperRec::size + flipperRec::masks)) = S(at::rightFlipperMasks);
-    nativeW(static_cast<u16>(first + 2 * flipperRec::size + flipperRec::masks)) = S(at::thirdFlipperMasks);
+    nativeW(static_cast<u16>(first + flipperRec::third * flipperRec::size + flipperRec::masks)) = S(at::thirdFlipperMasks);
     if (!high())
       for (u16 f = 0; f < 3; ++f)
         for (u16 field = flipperRec::accelHeld; field <= flipperRec::speedHeldMax + 2; field = static_cast<u16>(field + 2)) {
@@ -124,7 +132,7 @@ void Engine::start(const Options& o, ByteView bestScores) {
     }
     for (u16 f = first; nativeB(f) != 0; f = static_cast<u16>(f + flipperRec::size)) {
       auto w = [&](u16 field) { return nativeW(static_cast<u16>(f + field)); };
-      nativeB(static_cast<u16>(f + flipperRec::pictureStamped)) = 0xff;
+      nativeB(static_cast<u16>(f + flipperRec::pictureStamped)) = kNoPicture;
       w(flipperRec::maskStep) = static_cast<u16>(w(flipperRec::maskStep) / 3);
       // cs:3d81: each of its pictures takes in the wall round it, so that putting one into
       // the mask does not rub the wall out
@@ -166,10 +174,10 @@ void Engine::start(const Options& o, ByteView bestScores) {
     for (auto& plane : video_) std::fill(plane.begin() + video::pictureEnd, plane.begin() + video::pictureEnd + 0x150, u8{0});
     B(at::plungerShown) = 0;
   }
-  if (high()) B(at::keys) |= 4;
+  if (high()) B(at::keys) |= keyBits::oneStep;
   B(at::mousePresent) = 0;
   B(at::drawOrder) = 0;
-  B(at::ballNeverDrawn) = 0xff;
+  B(at::ballNeverDrawn) = kSet;
   B(at::ballMidFrame) = 0;
   B(at::callbacksOn) = 0;
 
@@ -179,7 +187,7 @@ void Engine::start(const Options& o, ByteView bestScores) {
   B(at::musicAfter) = 0;
   W(at::drawRoutine) = F(at::nothing);
   // (3706 and 370e: nothing else reads or writes them)
-  for (u16 a : {u16{0x3706}, at::msgScrollText, at::msgScrollRow, u16{0x370e}, at::glyphRowsCut, at::glyphFirstRow, at::fontNext, at::idleShowing}) W(a) = 0;
+  for (u16 a : {u16{kUnusedA}, at::msgScrollText, at::msgScrollRow, u16{kUnusedB}, at::glyphRowsCut, at::glyphFirstRow, at::fontNext, at::idleShowing}) W(a) = 0;
   B(at::flippersLive) = 0;
   B(at::startKey) = 0;
   B(at::lastStartKey) = 0;
@@ -221,38 +229,38 @@ void Engine::start(const Options& o, ByteView bestScores) {
   }
   for (u16 i = 0; i < 0x300; ++i) dac_[i] = CB(at::palette, i) & 0x3f;  // cs:4f3c, at full brightness
   sound->start();
-  B(at::lightsReady) = 0xff;
-  B(at::callbacksOn) = 0xff;
+  B(at::lightsReady) = kSet;
+  B(at::callbacksOn) = kSet;
   speedLimits_ = {W(at::speedMin).s(), W(at::speedMax).s()};
 }
 
 void Engine::setAngle(int angle) {
-  angle = angle < 0 ? 0 : angle > 2 ? 2 : angle;
+  angle = angle < tableAngle::low ? int{tableAngle::low} : angle > tableAngle::steeper ? int{tableAngle::steeper} : angle;
   // the pull down the table on each of its slopes: three less when it lies low (cs:30e9), and
   // three more when steeper
   const u16 slopes = high() ? kw(at::slopesHighInsn, 1) : kw(at::slopesLowInsn, 1);
-  for (u16 i = 0, n = kw(at::slopeCountInsn, 1); i < n; ++i) nativeW(static_cast<u16>(slopes + i * 4 + 2)) += static_cast<u16>((angle - angle_) * 3);
+  for (u16 i = 0, n = kw(at::slopeCountInsn, 1); i < n; ++i) nativeW(static_cast<u16>(slopes + i * slopeRec::size + slopeRec::pullY)) += static_cast<u16>((angle - angle_) * slopeRec::lowAngle);
   angle_ = angle;
-  B(at::optionLowAngle) = angle == 0;
-  W(at::speedMin) = static_cast<u16>(angle == 2 ? speedLimits_[0] * 5 / 4 : speedLimits_[0]);
-  W(at::speedMax) = static_cast<u16>(angle == 2 ? speedLimits_[1] * 5 / 4 : speedLimits_[1]);
+  B(at::optionLowAngle) = angle == tableAngle::low;
+  W(at::speedMin) = static_cast<u16>(angle == tableAngle::steeper ? speedLimits_[0] * 5 / 4 : speedLimits_[0]);
+  W(at::speedMax) = static_cast<u16>(angle == tableAngle::steeper ? speedLimits_[1] * 5 / 4 : speedLimits_[1]);
 }
 
 void Engine::setScrolling(u8 scrolling) {
   B(at::optionScrolling) = scrolling;
-  W(at::scrollSpeed) = scrolling < 1 ? 0x14 : scrolling == 1 ? 0x0b : 0x09;
+  W(at::scrollSpeed) = scrolling < scrollOption::medium ? 0x14 : scrolling == scrollOption::medium ? 0x0b : 0x09;
 }
 
 void Engine::write(std::string_view text) {
-  W(at::fillAt) = 0xa8;
+  W(at::fillAt) = display::top;
   W(at::fillWidth) = 0x50;
   W(at::fillRows) = 0x10;
-  fillDisplay(0xa8, 0x50, 0x10);
-  setFont(0);
+  fillDisplay(display::top, 0x50, 0x10);
+  setFont(font::h13);
   W(at::glyphRowsCut) = 0;
   W(at::glyphFirstRow) = 0;
   if (text.size() > 20) text = text.substr(0, 20);
-  u16 at = static_cast<u16>(0x150 + (20 - text.size()) * 2);  // in the middle, as GAME PAUSED is
+  u16 at = static_cast<u16>(display::line + (20 - text.size()) * 2);  // in the middle, as GAME PAUSED is
   for (const char c : text) {
     u16 place = at;
     drawChar(static_cast<u8>(c >= '0' && c <= '9' ? c - '0' + 0x37 : c), place);

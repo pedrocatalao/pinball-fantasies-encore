@@ -17,6 +17,8 @@ namespace encore {
 namespace flipperRec {
 constexpr u16 size = 0x3c;
 constexpr u16 side = 0x00;  ///< byte: 1 the right flipper's key, 2 the left's
+constexpr u8 right = 1, left = 2;  ///< its sides
+constexpr int third = 2;  ///< the third, which not every table has
 constexpr u16 pictureStamped = 0x01;  ///< byte: the picture last put into the collision mask
 constexpr u16 x = 0x02, y = 0x04;  ///< where its box is on the playfield
 constexpr u16 width = 0x06;  ///< in sixteens of dots
@@ -52,6 +54,7 @@ namespace zoneRec {
 constexpr u16 size = 10;
 constexpr u16 xMin = 0, yMin = 2, xMax = 4, yMax = 6;
 constexpr u16 then = 8;  ///< the routine to run, or (a bumper's, a kicker's) its award
+constexpr u16 boxOnly = 8;  ///< the size of an entry of the ramps' transitions, which have the box alone
 }  // namespace zoneRec
 
 /// A light that blinks (at::blinks, one slot after another).
@@ -92,6 +95,156 @@ namespace awardRec {
 constexpr u16 score = 0, bonus = 12, script = 24;
 }  // namespace awardRec
 
+/// A slope of the table (cs:30e9): the pull on the ball across it and down it, a word each.
+namespace slopeRec {
+constexpr u16 size = 4;
+constexpr u16 pullX = 0, pullY = 2;
+constexpr u16 lowAngle = 3;  ///< taken from the pull down every slope when the table lies low
+constexpr u8 number = 0x0f;  ///< a slope's number, in the low bits of a byte of the slopes' mask
+}  // namespace slopeRec
+
+/// One of the best scores (at::bestScoresInsn): its twelve digits, then the three letters of
+/// a name, and a byte to spare.
+namespace bestScoreRec {
+constexpr u16 size = 0x10;
+}  // namespace bestScoreRec
+
+/// The keys, by the code the keyboard sends as each goes down (cs:3e44). As a key comes up,
+/// its code comes again with `released` set.
+namespace scancodes {
+constexpr u8 escape = 0x01;
+constexpr u8 p = 0x19;  ///< pause
+constexpr u8 enter = 0x1c;  ///< one player more
+constexpr u8 ctrl = 0x1d;
+constexpr u8 leftShift = 0x2a;
+constexpr u8 m = 0x32;  ///< the music off and on
+constexpr u8 rightShift = 0x36;
+constexpr u8 alt = 0x38;
+constexpr u8 space = 0x39;  ///< the nudge
+constexpr u8 f1 = 0x3b, f8 = 0x42;  ///< a game for one to eight players
+constexpr u8 f9 = 0x43, f10 = 0x44, f11 = 0x57, f12 = 0x58;  ///< how fast the screen follows
+constexpr u8 pageUp = 0x49, pageDown = 0x51;  ///< (after `extended`) the mid-frame steps, while no game is played
+constexpr u8 down = 0x50;  ///< (after `extended`) the plunger
+constexpr u8 extended = 0xe0;  ///< comes before an arrow's code, and the right-hand alt's and ctrl's
+constexpr u8 released = 0x80;  ///< the bit set in a key's code as it comes up
+constexpr u8 up(u8 code) { return static_cast<u8>(code | released); }
+constexpr u8 none = 0xff;  ///< at::lastKey: no key waits to be read
+constexpr u8 keyDownMark = 0x0f;  ///< what at::keyDown is set to as a key goes down
+}  // namespace scancodes
+
+/// The bits of at::keys.
+namespace keyBits {
+constexpr u8 rightFlipper = 1, leftFlipper = 2;
+constexpr u8 oneStep = 4;  ///< the ball is moved once, not twice, in the mid-frame callback
+}  // namespace keyBits
+
+/// What F11 and F12 leave in at::scrollKey, for the program's loop to act on.
+namespace scrollKey {
+constexpr u8 f11 = 0x0b, f12 = 0x0c;
+}  // namespace scrollKey
+
+/// The materials, by the three bits the masks give where the ball touches:
+/// a mark, a wall, a slope's mask.
+namespace material {
+constexpr u8 markBit = 1, wallBit = 2, slopeBit = 4;
+constexpr u8 flipper = 2;
+constexpr u8 kicker = 3;   ///< MATERIAL_KICKER
+constexpr u8 bumper = 7;   ///< MATERIAL_BUMPER
+constexpr u16 size = 16;  ///< a material's record (at::materials)
+constexpr u16 minBounceSpeed = 6;  ///< the speed in it
+}  // namespace material
+
+/// Which set of masks the ball is on (at::layer).
+namespace layers {
+constexpr u8 playfield = 0, ramps = 0xff;  ///< the ball's layer
+}  // namespace layers
+
+/// The copies of the masks the original keeps in video memory (Engine::copiedMask).
+namespace maskCopy {
+constexpr int rampsMarks = 0, rampsSlopes = 1, groundSlopes = 2;
+}  // namespace maskCopy
+
+/// Angles, in 2048ths of a turn from pointing right, clockwise.
+namespace ballAngles {
+/// The quarters a touch was in, a bit each (from pointing right on); three sets lie either
+/// side of pointing right.
+constexpr int q1 = 1, q2 = 2, q3 = 4, q4 = 8;
+}  // namespace ballAngles
+
+/// What a task of the display's leaves in SI (at::taskState) besides a count of frames:
+/// nought when it is done.
+namespace taskState {
+constexpr u16 waiting = 0xff;  ///< not done: waiting on the music or a sound
+constexpr u16 countingBonus = 0x4b;  ///< not done: what the bonus's count leaves
+}  // namespace taskState
+
+/// The display, as it lies in the first and third planes of video memory: 16 rows of 160
+/// dots, each byte a dot, the two planes by turns. Its places are offsets in a plane, from
+/// the top of video memory, whose first row it does not use.
+namespace display {
+constexpr u16 top = 0xa8;  ///< where its first row begins
+constexpr u16 beforeTop = 0xa7;  ///< the byte before it, which the animations' dots and the wipe to the right count from
+constexpr u16 end = 0xb28;  ///< past its last row
+constexpr u16 rightEnd = 0xf8;  ///< past the end of its first row
+constexpr u16 line = 0x150;  ///< a line of the 13-dot font, a row down from the top
+constexpr u16 paused = 0x162;  ///< GAME PAUSED, in the middle of that line
+constexpr u16 score = 0xc8;  ///< the score in its large digits
+constexpr u16 bigScore = 0xa0;  ///< the same, further left, for the script's dmBigScore
+constexpr u16 bonus = 0x488;  ///< the bonus as it is counted, in the 8-dot font
+constexpr u16 bonusClear = 0x498;  ///< and what is cleared when it is
+constexpr u16 matchDigits = 0x540;  ///< the match's digits, 0 to 9, eight bytes apart
+constexpr u16 countdownSeconds = 0x240;  ///< a mode's count-down, in the 11-dot font
+constexpr u16 countdownScore = 0x158;  ///< and its score beside it, in the 13-dot
+constexpr u16 longMsgPlace = 0x2a0;  ///< the long message's place, as the program starts (cs:6e7c)
+constexpr u16 stripedEnd = 0x348;  ///< the striped wipe: four rows, each band of four cleared together
+constexpr u16 commaMark = 0xa1b;  ///< the mark between the thousands, from the score's place less display::score
+constexpr u8 notDrawn = 0xcc;  ///< at::numberDrawn: a digit no digit is, so that all are drawn afresh
+constexpr u8 scoreNotDrawn = 0x12;  ///< at::scoreDrawn: the same
+constexpr u8 unchanged = 0xff;  ///< at::numberShown: the digit is left as it is
+constexpr u8 longMsgEnd = 0xff;  ///< ends a long message
+constexpr u8 animSkip = 0x7f;  ///< an animation's byte that only moves on
+}  // namespace display
+
+/// An animation of the display's (cs:6fb5), by where things are from its first frame: before
+/// it, where to go back to, how many rounds and where the frames end; each frame how long it
+/// stays, then where its dots are.
+namespace animRec {
+constexpr u16 back = 6, rounds = 4, end = 2;  ///< before the first frame
+constexpr u16 frameTime = 2;  ///< in a frame, after where its dots are
+}  // namespace animRec
+
+/// The display's four fonts (setFont), by their height.
+namespace font {
+constexpr int h13 = 0, h11 = 1, h8 = 2, h5 = 3;
+}  // namespace font
+
+/// The map masks that pick a plane of the video card (the long messages' letters are drawn in
+/// the first and the third by turns).
+namespace planeMask {
+constexpr u8 first = 1, third = 4;
+}  // namespace planeMask
+
+/// What the sound driver's status (int 66h, function 0x15) says, by its bits.
+namespace driverStatus {
+constexpr u8 effectSounding = 8;
+constexpr u8 silent = 0x0a;  ///< what the silent driver always answers
+}  // namespace driverStatus
+
+/// How quickly the screen follows the ball, as PINBALL.CFG says it.
+namespace scrollOption {
+constexpr u8 hard = 0, medium = 1, soft = 2;
+}  // namespace scrollOption
+
+/// The angles the table may lie at (Engine::setAngle).
+namespace tableAngle {
+constexpr int low = 0, high = 1, steeper = 2;
+}  // namespace tableAngle
+
+/// The tables, as Program numbers them.
+namespace tableId {
+constexpr int partyLand = 0, speedDevils = 1, gameshow = 2, stonesNBones = 3;
+}  // namespace tableId
+
 /// What a table asks of the sound driver (the original's int 66h). The default is the game's
 /// own silent driver, NOSOUND.SDR: it plays nothing and answers 0.
 class SoundDriver {
@@ -109,7 +262,7 @@ class SoundDriver {
   virtual u8 start() { return 0; }
   /// Function 0x15 (int66::status): what is playing; bit 3 is set while an effect still sounds. The silent
   /// driver always answers that one does.
-  virtual u8 status() { return 0x0a; }
+  virtual u8 status() { return driverStatus::silent; }
 };
 
 class Engine : public Program {
@@ -120,7 +273,7 @@ class Engine : public Program {
   struct Options {
     bool fiveBalls = false;
     bool lowAngle = false;
-    u8 scrolling = 1;      ///< 0 hard, 1 medium, 2 soft
+    u8 scrolling = scrollOption::medium;      ///< 0 hard, 1 medium, 2 soft
     bool musicOff = false;
     bool highResolution = true;
     bool mono = false;
@@ -185,9 +338,9 @@ class Engine : public Program {
   /// game is played.)
   void showAsNow() {
     for (int which = 0; which < 3; ++which) drawFlipper(which);
-    if (!std::exchange(ballDrawn_, false) && (B(at::ballHidden) == 0xff || B(at::attract) == 0xff)) return;
+    if (!std::exchange(ballDrawn_, false) && (B(at::ballHidden) == kSet || B(at::attract) == kSet)) return;
     shown_.ballX = W(at::ballX).s();
-    shown_.ballY = static_cast<i16>(W(at::ballY) + (B(at::ballHidden) == 0xff ? 0 : W(at::nudgeLift)));
+    shown_.ballY = static_cast<i16>(W(at::ballY) + (B(at::ballHidden) == kSet ? 0 : W(at::nudgeLift)));
     shown_.ramps = B(at::layer) != 0;
   }
   /// A flipper is drawn standing another way than it was last drawn: its record, and which
@@ -231,8 +384,8 @@ class Engine : public Program {
   /// byte a dot, 0xf2 lit and 0x60 not. Past the picture are the copies of three masks that the
   /// original reads the ramps' slopes and materials from, and, over parts of those, the
   /// pictures it keeps there to draw with: what it reads there, the engine must read too.
-  const std::array<std::vector<u8>, 4>& videoMemory() const { return video_; }
-  std::array<std::vector<u8>, 4>& videoMemory() { return video_; }
+  const std::array<std::vector<u8>, 4u>& videoMemory() const { return video_; }
+  std::array<std::vector<u8>, 4u>& videoMemory() { return video_; }
 
   /// The video card's colours as the table has set them: 256 of red, green, blue, 0-63.
   const std::array<u8, 768>& colours() const { return dac_; }
@@ -367,7 +520,7 @@ class Engine : public Program {
   void todo(u16 partyLandAddress) { call(F(partyLandAddress)); }
   void effect(u16 record);  ///< plays the four-byte effect record at Party Land's address
 
-  bool high() { return B(at::highResolution) == 0xff; }
+  bool high() { return B(at::highResolution) == kSet; }
   /// A number below `n` by chance: the generator's next, or `counted`, which is what the
   /// original makes of its count of loops at this place.
   u16 chance(u16 n, u16 counted) {
@@ -377,13 +530,13 @@ class Engine : public Program {
   bool drawsChance() const { return generator_.has_value(); }
 
   std::array<u8, 768> dac_{};
-  std::array<std::vector<u8>, 4> video_;
+  std::array<std::vector<u8>, 4u> video_;
   SoundDriver silent_;
   bool exited_ = false;
   enum class Pause { No, AnyKey, YesOrNo } pause_ = Pause::No;
   u16 screenRow_ = 0;
   Shown shown_;
-  int angle_ = 1;
+  int angle_ = tableAngle::high;
   std::array<i16, 2> speedLimits_{};  ///< as the start-up left them, while the steeper angle has them greater
   std::array<Step, kSteps> steps_{};
   std::size_t stepsKept_ = 0;
