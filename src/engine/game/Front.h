@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "core/Keys.h"
+#include "engine/Values.h"
 #include "engine/audio/MusicDriver.h"
 #include "game/Config.h"
 #include "gfx/HdLayer.h"
@@ -84,7 +85,6 @@ constexpr u16 warpTable = 0x597a;  ///< the banners' rows drawn in, a frame's af
 constexpr u16 glyphs = 0x59ed;  ///< words: where each letter is in the card's memory, by its code; ffff for none
 }  // namespace var
 
-/// In a line of best scores: where the score's twelve digits begin, after the initials.
 /// Where in video memory the screen starts for the second and the third slides.
 namespace screenStart {
 constexpr u16 logo1 = 0x4d30, logo2 = 0x99c0;
@@ -114,6 +114,7 @@ constexpr u16 table1 = 0x06;  ///< the four banners
 constexpr u16 table2 = 0x08;
 constexpr u16 table3 = 0x0a;
 constexpr u16 table4 = 0x0c;
+constexpr u16 end = 0x0e;  ///< past the last
 }  // namespace pictures
 
 /// The texts on the panel on the left, in the code segment: ten lines of twelve letters each.
@@ -279,7 +280,7 @@ class Front {
   void text(u16 y, const u8* page);
   void string(u16 y, u16 x, u16 text);                       ///< cs:43cf
   void heading(u16 from, u16 to);                            ///< cs:13ea
-  void forget(u16 at, u8 dots = 0xff);                       ///< those dots are no longer a picture's
+  void forget(u16 at, u8 dots = 0xff);                   ///< those dots are no longer a picture's
   void threeColours(int times, int of);                      ///< the letters' three colours, dimmed
   void rubOutText(bool both);                                ///< cs:2684, cs:26b1
   void optionText(int row, u16& text);                       ///< cs:41b2 and its like
@@ -300,12 +301,12 @@ class Front {
   int writeMode_ = 0;
   Mode mode_ = Mode::Chunky320;
   u16 start_ = 0;
-  u16 shownWidth_ = 640;           ///< dots of each row the card shows; the menu opens sideways
+  u16 shownWidth_ = kWidth;        ///< dots of each row the card shows; the menu opens sideways
   std::array<u8, 768> dac_{};
   u8 colourSelect_ = 0;
   bool selectBits_ = false;        ///< the upper colour bits come from the colour select
   u8 selectTop_ = 0, selectBottom_ = 0;
-  std::array<u8, 768> fadeBuffer_{};  ///< cs:20df
+  std::array<u8, 768> fadeBuffer_{};    ///< cs:20df
   /// For the pictures drawn again at high resolution: which picture each dot of the card's
   /// memory is a dot of, and which dot (picture << 20 | across << 10 | down); 0 for none.
   /// Copies within the memory take it along, and whatever is drawn over a dot takes it away.
@@ -328,7 +329,7 @@ class Front {
   bool slideIn_ = false;           ///< cs:2c32
   u16 slideAt_ = 0;                ///< cs:2c33
   bool scrollerOn_ = false;        ///< cs:2980
-  i16 scrollerCount_ = 0x1e0;      ///< cs:297e
+  i16 scrollerCount_ = 0x1e0;  ///< cs:297e
   u16 scrollerText_ = intro::code::leftTextMenu, scrollerNow_ = intro::code::leftTextMenu;  ///< cs:2981, cs:2983
   bool scrollerShowsText_ = false; ///< cs:2985: 29df when true, 29fa when not
   u16 drawAt_ = 0, fontAt_ = 0;    ///< cs:2cee, cs:2cf0
@@ -343,9 +344,10 @@ class Front {
   std::array<std::vector<u8>, 2> optionsPages_;
   int optionsShown_ = 0;           ///< which of them
   static constexpr int kFirstOptions = 6;  ///< the options on the first page; the rest on the other
+  static constexpr int kFirstWord = 0x1e;  ///< where the first option's word is in a page of them
   u8* optionWord(int row) {
     const int page = row < kFirstOptions ? 0 : 1, line = row - (page ? kFirstOptions : 0);
-    return &optionsPages_[static_cast<std::size_t>(page)][static_cast<std::size_t>(0x1e + line * 0x18)];
+    return &optionsPages_[static_cast<std::size_t>(page)][static_cast<std::size_t>(kFirstWord + line * 0x18)];
   }
   void writeOptionWord(int row);   ///< cs:404a: an option's word into its page's text
   PortableLock portableLock_ = PortableLock::None;
