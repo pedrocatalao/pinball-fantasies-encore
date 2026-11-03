@@ -42,3 +42,80 @@ Two things to know when reading the outputs:
 - **One line of the engine tests changes by itself**: "heard from N of 512" in
   `tests/engine/test_effects.cpp` comes from an unseeded draw (318, 319 and 319 on three runs of
   the same binary).
+
+## Results
+
+Measured on this branch, each commit against the one before it, with `objall.sh` (every `.cpp`
+of `src/engine`, the referee, the tools, the tests, `src/game/App.cpp` and `src/main.cpp`: 45
+files, about 2,387 function bodies) and `datacmp.sh` / `datacmp-trees.sh` (the data of every
+`.cpp` the commit changes).
+
+| commit                                            | machine code                    | data                   |
+|---------------------------------------------------|---------------------------------|------------------------|
+| test: probes                                      | the same                        | no code                |
+| refactor(re): Party Land's addresses              | the same                        | no code                |
+| refactor(engine): names for addresses and records | the same                        | the same               |
+| refactor: game, view and referee use the names    | the same                        | the same               |
+| refactor(stones): addresses                       | 6 bodies differ, 1 more (below) | packed tighter (below) |
+| refactor(speed): addresses                        | the same                        | the same               |
+| refactor(gameshow): addresses                     | 1 body differs (below)          | the same               |
+| refactor(party): addresses                        | the same                        | the same               |
+| refactor(sound): functions and records            | the same                        | the same               |
+| refactor(menu): INTRO.PRG's addresses             | the same                        | the same               |
+| refactor(engine): values                          | the same                        | the same               |
+| refactor(tables): values                          | the same                        | the same               |
+| refactor: values in game, view, sound, data       | the same                        | the same               |
+| refactor(menu): values                            | the same                        | the same               |
+| refactor(oracle): the referee's values            | the same                        | the same               |
+
+Every commit compiles. The seven bodies that differ, read one by one (`fnpair.py`):
+
+- **Stones 'n Bones** (six, and `stonesAndBones`, a helper that replaces the list of nine lights
+  written out at each place): the helper's two callers; `bindRules` and its `after`, which take a
+  `Timer` (a routine and its counter) instead of two numbers; `restorePlayer`, where the ghost's
+  address `0x305 + (n - 1) * 7` is folded as `0x2fe + n * 7`, the same number; and two that
+  differ only in padding. Its data holds the same constants, packed tighter (32 bytes less
+  padding), and `after`'s lambda's type name, which now names `stones::Timer`.
+- **Gameshow** (one): `wheelTick` passes `cond ? timers::givePrize : timers::spinWheelEnd.routine`
+  to `addTimer`; with names of type `u16` in place of `int` literals GCC lays out the two
+  branches the other way round. The same two routines on the same condition.
+
+**Behaviour** (`equiv.sh`, `main` against this branch, each table): the referee over 19 runs,
+the recordings, three random games and the engine tests give the same output on all four tables,
+but for the one line that changes by itself.
+
+**`re/gensymbols.py`** (`genproof.sh`, against `main`): it writes this branch's `Names.inc`, and
+the same `Maps.inc` with two lines more, `ENCORE_MAP_TARGET(0x2316, ...)` and `(0x2ef6, ...)`.
+Those are `nudgeLift` and `gravityX`, which the engine already wrote as names on `main`, so their
+numbers were never gathered: data addresses taken for routines, as others of the map's lines
+gathered from numbers already are, and read only by `F()` and `has()`, which nothing asks for
+data. Without the change that gathers the `at::` names, a regeneration would lose 13 lines (among
+them `jump`'s, which Speed Devils and the Gameshow bind). `Maps.inc` itself is not regenerated
+here: this machine's nasm (2.16.03) does not give the committed one.
+
+**Coverage** (`pfr_coverage.py`): the 549 names of pfr's binding enums (but its `Dummy`) are all
+in `src/engine/table`, by name, as a series' base or cited in a comment.
+
+**What is still a number** (`count_remaining.py`, `src/engine` and `tools/oracle`, outside
+definitions, comments and strings, not 0, 1 or 2): 10,079 on `main`, 1,253 here. They are
+arithmetic (shifts, masks of bits, the 2 of a word, `% 10`), data written as data (the referee's
+per-table addresses in `Symbols.h`, `TableSound`'s records, the menu's banners and letters),
+ordinals (`case 0` to `case 8`), pfr's own literals in the bounce, and a few a name would
+compile otherwise: GCC narrows a division by a literal to the operand's width, not one by a
+name, and a name passed by reference (`vector::assign`) or in a `?:` changes the code; those
+keep the literal, with a comment.
+
+**Found on the way**, left as they are:
+
+- Where pfr's rules and the original's differ, the code keeps the original's (Party Land:
+  `partyR()` ends the cyclone's X5 before it is checked; the popcorns count with no cap;
+  `duckAll` sets only the first two flags).
+- `TableSound` reads four records at other places than pfr: Speed Devils' match tunes (ours
+  0x0a59 and 0x0a5c, pfr's 0x0a62 and 0x0a65), the Gameshow's silence (0x08cf, pfr's 0x08ad),
+  Stones 'n Bones' match start (0x090a, pfr's 0x0910, where the table's own rules play it).
+  pfr's bytes look like the records (`soundbytes.cpp`). Only `test_sound.cpp` reads these.
+- Comments corrected from pfr: the ball *leaves* the plunger lane at Stones 'n Bones' 0x1738 and
+  the Gameshow's cs:1077; Speed Devils' rows of three are the BUR and NIN targets, and cs:2281
+  counts miles; the Gameshow's "loop" in `countSkills` is the skills ramp; SB16.SDR's function
+  0x18 turns the timer's callbacks on and off; a flipper's pieces are the flippers', not the
+  plunger's.
