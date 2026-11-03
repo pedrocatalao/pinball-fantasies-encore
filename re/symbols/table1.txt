@@ -11,6 +11,20 @@ i 2056 spriteBank
 i 3b74 wallsGround
 i 4114 marksGround
 i 46b4 wallsRamps
+i 7734 marksRamps
+i 7194 slopesGround             ; each stretch of eight dots: the slope it lies on, in its low four bits
+i 7cd4 slopesRamps
+i 2f94 coverGround              ; where the picture hides the ball
+i 358c coverRamps               ; the same on the ramps, further on in the same memory
+i 4c54 leftFlipperMasks         ; a flipper's pictures in the collision mask, one for each way it stands
+i 4fc2 rightFlipperMasks
+i 4eb6 thirdFlipperMasks
+i 8274 flipperPieces            ; pieces of the flippers' pictures, copied to video memory at d4f4
+i 82e2 plungerPicture
+i 5224 tablePicture1            ; the table's picture, in four strips
+i 5947 tablePicture2
+i 617b tablePicture3
+i 6a9c tablePicture4
 
 # --- the frame
 c 2f9b entry
@@ -33,6 +47,26 @@ c 5d70 rollTriggers
 c 5cb9 hitTriggers
 c 5ace bumperEvent
 c 4018 scroll
+d 230e inFrameCallback          ; set and cleared at once in frameCallback; the mid-frame callback waits while it is set
+d 2f29 callbacksOn              ; 0 while colours are sent or the game is paused: the callbacks do nothing
+d 354b frameCount               ; counted up by frameCallback
+d 36f2 frameOnTime              ; ff: no frame was missed, and the display's step may run
+d 23aa stepsBusy                ; ff while frameCallback moves the ball
+d 23ab rulesBusy                ; ff while frameCallback runs the rules
+v 444b midFrameDue              ; ff: frameCallback is done, and it is the mid-frame callback's turn
+v 444a displayBusy              ; ff while the display's step runs
+v 87da physicsBusy              ; ff while physicsOnce runs
+d 2f06 drawOrder                ; which of the ball and the flippers was drawn first the last time
+d 2f07 ballMidFrame             ; ff: the ball is drawn in the mid-frame callback
+d 2f08 ballNeverDrawn           ; ff until the ball is first drawn (cs:4145)
+d 2f09 flippersWithBall         ; ff: the two flippers are drawn with the ball
+d 2f0a thirdWithBall            ; ff: and the third flipper
+d 2f0b thirdMidFrame            ; ff: the third flipper is drawn in the mid-frame callback
+d 2f00 displayLine              ; the screen line the display begins at
+d 2f02 screenTop                ; the row of the table at the top of the screen, less 21h
+d 2f04 scrollFixed              ; where the screen is, in sixteenths of a row
+d 23ac scrollSpeed              ; how quickly the screen follows the ball
+d 3718 attractScroll            ; 1 or -1: the way the screen drifts while no game is played
 
 # --- the ball
 d 2ede spin
@@ -61,6 +95,38 @@ d 2311 tilted
 d 2312 tiltCounter
 d 239b bumperPending
 d 239d bumperRecord
+d 2eda touchedMaterial          ; the three masks' bits under the last point that touched
+d 67e0 probePoints              ; the 44 points round the ball: x and y, words, from the ball's corner
+d 231b materials                ; eight of 16 bytes, by the three masks' bits
+d 6898 materialGain             ; the material touched, copied from materials: what slip the speed along it takes
+d 689a materialSpinGain         ; and what slip the spin takes
+d 689c bounceFactor             ; this and the next two: a material's
+d 689e minBounceSpeed
+d 68a0 maxBounceAngle
+d 68a2 speedMin                 ; the slowest and the fastest the ball may go, either way
+d 68a4 speedMax
+d 68a6 bumperSpeedBoost         ; this and the next four: the bumpers' and kickers' push
+d 68a8 kickerSpeedBoost
+d 68aa kickerSpeedThreshold
+d 68ac pushSpeedAttack          ; the table rising while the space bar is held
+d 68ae pushSpeedRelease         ; and settling when it is let go
+d 4600 sines                    ; 0a00 words, of 14 bits, kept high byte first
+d 4a00 cosines                  ; the same table, a quarter turn on
+d 6950 flippers                 ; three of 3ch bytes; the first byte 1 right, 2 left, 0 none
+d 248a flipperQuanta            ; a flipper's place to which of its pictures it shows
+d 0cf3 bumpers                  ; rectangles, each with its record: noise, then score
+d 0d1b kickers
+d 0d71 hitTriggerList           ; rectangles touched, each with its routine
+d 0d9b rollTriggersGround       ; rectangles rolled into, each with its routine
+d 0e29 rollTriggersRamps
+d 0ea3 rollTriggersGroundTilted
+d 0ec3 rollTriggersRampsTilted
+d 0ec5 transitionsDown          ; rectangles in which the ball leaves the ramps
+d 0f17 transitionsUp            ; and goes onto them
+d 239f marksRampsCopy           ; where in video memory the three masks are copied
+d 23a1 slopesRampsCopy
+d 23a3 slopesGroundCopy
+c 5a15 slopeCount               ; cmp bx: its third byte is the number of the table's slopes
 
 # --- the machine and options
 d 2f28 keys                     ; bit 0 right flipper, bit 1 left, bit 2 one step in the mid-frame callback
@@ -69,6 +135,44 @@ d 33ed loopCounter              ; the program's source of chance
 d 23a7 plungerRoutine
 d 23a9 inMidFrame
 d 36e9 lastKey
+d 362e optionFiveBalls          ; PINBALL.CFG, as the start-up takes it in
+d 362f optionLowAngle
+d 3630 optionScrolling
+d 3631 optionMusicOff
+d 3632 optionHighResolution
+d 3633 optionMono
+d 3550 mousePresent
+d 354f plungerHeld              ; ff while the down arrow is held
+d 23a5 plungerPull              ; how far the plunger is pulled, up to 20h
+d 23a6 plungerShown             ; which of its pictures it shows
+c 5e0d plungerPulling           ; plungerRoutine while it is pulled or at rest
+c 5e6a plungerLetGo             ; and when it is let go
+d 338b flipperPressed           ; ff: a flipper's key went down
+d 2310 spaceHeld                ; ff while the space bar is held: the table rises
+v 3477 nudgeHeld                ; ff: the space bar has shaken the table, until it is let go
+v 3476 keyDown                  ; set to 0f as a key goes down; nothing reads it
+v 3f89 extendedKey              ; ff: the last scancode was e0
+d 3553 scrollKey                ; 0b or 0c: F11 or F12 was pressed
+d 230f pauseAsked               ; ff: P was pressed
+d 33f0 afterPause               ; frames counted down after a pause
+d 231a musicOff                 ; ff: M turned the music off
+v 3475 keysOn                   ; 0 while the display asks whether to quit
+v 3195 quitAsked                ; ff while it does
+v 3732 quit                     ; ff: the program ends
+v 3a10 pauseQuit                ; set when the pause is left by quitting; nothing reads it
+d 3654 scancodeLetters          ; a letter for each scancode, or 0
+d 3715 lastStartKey             ; the start key, kept; nothing reads it
+d 3717 countPlayersAfresh       ; ff once a game is over: enter counts the players from one again
+d 372a noTilt                   ; ff: the table cannot be tilted
+d 3729 cheatLetter              ; the letter typed
+d 372b cheatPrefix              ; ff: what is typed begins a cheat's word
+d 372d cheatTyped               ; word: how many letters are in cheatBuffer
+d 372f cheatBuffer              ; twelve
+d 373d cheats                   ; each a routine, its word, and a 24h
+d 33ef codeChanged              ; ff unless the program's own code adds up as it should
+c 3030 checkedFrom              ; the stretch of code newGame adds up
+c 305a checkedTo
+c 38c8 checkedSum               ; cmp ah: its third byte is the sum, less 2
 
 # --- routines the tables' rules call
 c 5788 setLight                 ; BL: lit, and remembered as lit
@@ -141,7 +245,361 @@ d 33f8 scriptDone
 d 3714 startKey
 d 3713 attract
 
+# --- timers, and the counters they count with
+d 331b timers                   ; fifty words, each a routine or nothing
+d 337f timerCount               ; word, just past them
+d 3381 timerSlot                ; the slot of the timer whose turn it is
+d 338c runOnce                  ; a routine the rules run once, then nothing
+d 35ca counters                 ; fifty words, cleared as a ball begins; countTo's counters are among them
+d 35ce issueBallCounter
+d 35d0 issueBallRaiseSfxCounter
+d 35d2 issueBallSfxCounter
+d 35d4 issueBallReleaseCounter
+d 3616 setStartKeysActiveCounter
+d 3618 issueBallFinishCounter
+c 0bb7 issueBallTimer           ; this and the next five: the tasks a ball is served by
+c 0ca4 issueBallRaiseSfxTimer      ; the targets' sound as they rise (not in Stones 'n Bones)
+c 0cca issueBallSfxTimer
+c 0cf0 issueBallReleaseTimer    ; the ball appears at the top of the lane
+c 6200 issueBallFinishTimer     ; the first ball, while more players may still join
+c 0b73 gameOverTimer
+c 61e9 setStartKeysActiveTimer           ; players may be added again a moment after the last
+c 353b musicOffTimer            ; silence, as soon as it may
+
+# --- lights and colours
+d 2f2c colourQueue              ; colour records to be sent at the end of the frame
+d 3314 colourQueueEnd
+d 354a coloursBusy              ; ff while flushColours runs
+d 354d coloursInterrupted       ; set by the callbacks: flushColours sends its colours again
+d 354e lightsOutInterrupted     ; the same, for lightsOut
+v 4f23 fading                   ; ff: the colours are held while the screen fades
+v 4f59 palette                  ; the video card's colours, kept among the code
+d 2f2b lightsReady              ; ff once the start-up is done: lightsOut may work
+d 1079 lightColours             ; each light's record: its first colour, a count, the colours
+d 12bd lightRecords             ; words, by light number less one
+d 12b7 displayColoursOn         ; the display's colours, normal
+d 132d displayColoursOff        ; and inverse
+d 3555 blinks                   ; blinking lights, four bytes each, up to lightStates
+d 0f41 attractLightList         ; the lights' show while no game is played, ten bytes an entry
+d 35c4 extraBallLight           ; lightStates for light 33h: Party Land's ball owed
+d 3390 flashPeriod              ; words: the whole display flashing
+d 3392 flashCount
+d 3394 flashPhase
+d 3396 flashing
+
+# --- the display: the script's steps, and the tasks they set going
+c 2cf1 jump
+c 4736 playJingle
+c 471e setMusic
+c 46f3 playSfx
+c 453a dmBigScore               ; the score, in its large digits
+c 454a dmBlink
+c 4ceb dmStopBlink
+c 4cfd dmState
+c 4d1e setJingleTimeout
+c 4d52 delay
+c 4d62 delayIfMultiplayer
+c 4d82 halt
+c 4d96 confirmQuit
+c 4519 dmLongMsg                ; big letters that run across the display
+c 44dd dmAnim
+c 4757 modeContinue
+c 4780 modeStart
+c 47bc modeStartOrContinue
+c 4892 dmMsgScrollUp
+c 48af dmMsgScrollDown
+c 4dbd dmClear
+c 4df0 dmWipeDown
+c 4e2d dmWipeRight
+c 4e6d dmWipeDownStriped
+c 5273 waitJingle
+c 527c waitJingleTimeout
+c 5456 checkTopScore
+c 45f1 dmPrintScore11           ; a number at a place, in each font
+c 461a dmPrintScore13
+c 4643 dmPrintScore8
+c 466c dmPrintScore8Centred
+c 469b dmPrintScore13Centred
+c 46ca dmPrintScore5
+c 4b53 dmPuts13                 ; text at a place, in each font
+c 4b94 dmPuts11
+c 4bd5 dmPuts8
+c 4c16 dmPuts5
+c 535b defaultTask              ; the task when the script has nothing to do
+c 4d92 haltTask
+c 5287 confirmQuitTask
+c 52cd waitJingleTask
+c 52e3 waitJingleTimeoutTask
+c 531c bigScoreTask
+c 6e9c longMsgTask
+c 6fb5 animTask
+c 47db modeTask                 ; the count-down
+c 48cc msgScrollUpTask
+c 4922 msgScrollDownTask
+c 4dd1 dmClearTask
+c 4e04 wipeDownTask
+c 4e42 wipeRightTask
+c 4e82 wipeDownStripedTask
+c 456d drawNumber8              ; drawRoutine: the number at numberDigits, in each font
+c 458e drawNumber11
+c 45af drawNumber13
+c 45d0 drawNumber5
+d 3397 skipTask                 ; ff: the task misses a turn (a long message or animation begun over it)
+d 33e1 needDefaultBg            ; ff: the default task starts the main script
+d 33e4 pendingMode              ; ff: modeStartOrContinue starts the count-down again
+d 33f7 countdownHeld            ; the mode's count-down waits
+d 33f9 scriptEnded              ; ff when a script has run out, 0 when one starts
+d 33f1 gotTopScore              ; the score has passed the table's best
+d 372c enterAttract             ; ff: the default task starts the attract script
+d 36f6 idleFrames               ; word: frames since anything scored
+d 36f8 idleShowing              ; word: ff while the display shows the best scores for it
+d 36fc drawSource               ; AX for drawRoutine: the text, mostly
+d 36fe drawAt                   ; DI for drawRoutine: where on the display
+d 3551 jingleTimeout            ; frames waitJingleTimeout waits at most
+d 338e jingleEnded              ; ff: the music has come round
+d 338f jingleEndedRules         ; the same, for the table's own rules to wait on
+d 36ec modeSecondFrames         ; frames to a second of the count-down
+d 36ee modeFrames               ; frames left of this second
+d 36f0 modeScoreShown           ; the score shown beside the count-down
+d 36f3 countdownTens            ; the count-down's two digits, as characters
+d 36f4 countdownUnits
+d 3700 fillAt                   ; fillDisplay's place, width and rows
+d 3702 fillWidth
+d 3704 fillRows
+d 3708 msgScrollText
+d 370a msgScrollRow
+d 370c msgScrollTarget
+d 33eb wipeAt
+d 44a6 longMsgPlace             ; where on the display the long message is
+d 44a8 longMsgText              ; where in its text it is
+d 44d4 demoMessage              ; the long message the start-up sets going
+v 6f97 longMsgEighths           ; half-dots left before the next letter
+v 6faf longMsgMaskA             ; the two passes: each one's plane, and its place on the display
+v 6fb0 longMsgMaskB
+v 6fb1 longMsgAtA
+v 6fb3 longMsgAtB
+d 5e00 longFontEvenIndex        ; the long letters, in two pictures each: where each is
+d 6000 longFontOddIndex
+d 7c10 longFontEven             ; places in the code segment, which the pictures are
+d 70a0 longFontOdd
+d 33fd savedDisplay             ; the display kept while the game is paused, a bit to a dot
+d 33fa savedDisplayAt
+d 33fc savedDisplayBit
+d 6200 font13                   ; the four fonts, by their height
+d 6410 font11
+d 65d0 font8
+d 6710 font5
+d 371c blankGlyph
+d 447b glyphRowsCut
+d 447d glyphFirstRow
+d 447f fontHeight
+d 4481 fontNext                 ; from the bottom of a letter to the top of the next
+d 4483 font                     ; the font in use
+d 4485 numberDigits             ; drawNumber's number, and where
+d 4487 numberAt
+d 4489 numberShown              ; its digits to draw, ff where one is left as it is
+d 4495 numberDrawn              ; its digits as the display has them
+d 44a1 numberStarted            ; ff once past the zeros in front
+d 44a2 numberGroups             ; the marks between thousands, as drawn
+d 44a4 numberCentred            ; ff: moved back two for each zero in front
+d 45da scoreDrawn               ; twelve: the score's digits as the display has them
+d 45e6 scoreDrawnGroups
+
+# --- between balls and at the end of a game (Flow), and the script's steps
+c 0bca serveBall
+c 0317 accBonus
+c 0363 accBonusTask
+c 042c anotherBall              ; the ball's number goes up and the same player is served
+c 047f recordHighScores
+c 049e recordHighScoresTask
+c 05ad highScoreInsert          ; the scores below make room, and this one goes in
+c 0609 highScoreName            ; three letters are typed for it
+c 06c0 highScoreNameDone
+c 0705 repeatLoop
+c 071c repeatSetup
+c 07a6 eachScoreDraw
+c 07e5 match
+c 07fa matchBegin
+c 0a19 checkMatch
+c 0a6b nextBallIfMatched
+c 0ab2 nextBall
+c 0b43 issueBall
+c 0b5b gameOver
+v 0361 accBonusFrame
+d 33b3 bonusUnit                ; a one after eleven noughts, and noughts after it
+d 33ca bonusAdding              ; a window on bonusUnit: what each tick adds
+d 33cc bonusDigit               ; the digit of the bonus being counted off
+d 33a5 bonusKept                ; twelve: the bonus as it was before it was counted
+d 05b3 holdBonus                ; Party Land's: the bonus is kept for the next ball
+v 047a highScorePlayer          ; the player's record looked at
+v 047c highScorePlayers         ; players looked at
+v 047d highScorePlace           ; the best score beaten, 4 the highest
+v 0605 highScoreLetter          ; where the next letter goes
+v 0607 highScoreLetters         ; letters still to type
+d 3710 highScoreJingle          ; ff: the best score's tune was started
+d 3711 gotHighScore             ; a best score was beaten
+d 3712 sadJingle                ; the tune of no best score was started: no attract music over it
+v 071a repeatCount
+v 0732 eachScoreLeft
+v 0733 eachScorePlayer
+v 089d matchFrames
+v 09b6 matchedAny               ; ff: a player has the match's digit
+d 021a playerRecords            ; each player's record (playerSize apart): first the score
+d 00cd matchWon                 ; Party Land's own, from here on
+d 00ce extraBalls               ; balls owed
+d 00d0 specialPlungerEvent      ; the ball begins without the main script
+d 00d1 partyOn                  ; the ball is served again; its tune is not played
+d 33f2 inGameStart              ; the first ball of a game is to come
+
+# --- the table's own routines, which the engine calls
+c 0004 tableStart
+c 000b tableNewGame
+c 01cd tableAttractMusic        ; the music while it waits
+c 0202 tableGameMusic           ; the music a game opens with
+c 0215 tableDrained             ; the ball is lost
+c 0fa0 tableTilt
+c 0fc5 tableTiltWarning
+c 0fcc tableFlipperPressed      ; each frame, for flipperPressed
+c 2ab1 tableFrame               ; each frame, before the rules
+c 2bd1 tableBumper              ; after a bumper's score
+c 2ddc tableModeSecond          ; each second of the count-down
+
+# --- the cheats' words: each a routine, and the script it shows
+c 6b01 cheatTech
+c 6b0d cheatTsp
+c 6b19 cheatJohan
+c 6b25 cheatDaniel
+c 6b31 cheatGabriel
+c 6b3d cheatCheat
+c 6b49 cheatEarthquake          ; no tilt
+c 6b5a cheatRobban
+c 6b66 cheatStein
+c 6b72 cheatGreet
+c 6b7e cheatSnail               ; the mid-frame steps
+c 6b8f cheatExtraBalls          ; five balls
+c 6ba0 cheatFairPlay            ; and back to as it was
+d 439c scriptTech
+d 43dc scriptTsp
+d 43d4 scriptJohan
+d 43c4 scriptDaniel
+d 43cc scriptGabriel
+d 43a4 scriptCheat
+d 43e4 scriptEarthquake
+d 43ac scriptRobban
+d 43b4 scriptStein
+d 43bc scriptGreet
+d 43ec scriptSnail
+d 43f4 scriptExtraBalls
+d 43fc scriptFairPlay
+
+# --- scripts, tunes, sounds and texts
+d 13cd scriptTopScoreInterball
+d 13f7 scriptTopScoreIngame
+d 14b9 scriptInit
+d 1790 scriptShootAgain
+d 17a8 scriptMatch
+d 17b6 scriptCheckMatch
+d 17b8 scriptPostMatch
+d 17c4 scriptGameOver
+d 18ea scriptGameIdle
+d 19d4 scriptAttract
+d 1acc scriptMain
+d 1adc scriptGameStart
+d 1aea scriptGameStartPlayers
+d 4414 scriptConfirmQuit
+d 0c6c tuneSilence              ; three bytes each: place, repeats, priority
+d 0c6f tunePlunger
+d 0c72 tuneMain
+d 0c7e tuneGameOverSad
+d 0c81 tuneGameOverHighScore
+d 0c84 tuneDrained
+d 0c90 tuneMatchStart
+d 0c93 tuneMatchWin
+d 0c1d soundRaiseTargets        ; four bytes each: sample, note, 0, channel
+d 0c2d soundFlipper
+d 0c35 soundIssueBall
+d 0c3d soundSpringUp
+d 0c61 soundTickBonus
+d 0c65 soundGameStart
+d 2281 textPlayer               ; PLAYER 8
+d 2288 playerDigit              ; its digit
+d 228e ballTens                 ; BALL 8: the ball's two characters
+d 228f ballDigit
+d 2249 idlePlayerDigit          ; the same two in the idle script's text
+d 2253 idleBallDigit
+d 1d9b playersDigit             ; PLAYERS X
+d 2291 textHighScore            ; HIGHSCORE PL X ( )
+d 229e highScorePlayerDigit
+d 22a1 highScoreInitials
+d 22a6 textBlank                ; a row of the character that draws nothing
+d 1c16 matchPlayers             ; a character and a space for each player: the last but one digit of each score
+d 1c28 matchWinners             ; the same, with the players who did not match rubbed out
+d 1c3a matchDigitText           ; the match's digit, as text
+d 1c3c matchBlank               ; the character that draws nothing, as text
+d 1c3e matchNumber              ; word: the match's digit
+d 353e textPaused               ; GAME PAUSED
+d 4432 textReallyQuit           ; REALLY QUIT (Y OR N)
+
 # --- placed by hand in the tables where the line-up does not find them
 c 0735 eachScoreBegin @2:063d @3:05c8
 c 0762 eachScoreNext @2:066f @4:06d8
 c 089f matchDigit @4:08a4 ; the match: its digit changes (a jump mistaken for it in Stones 'n Bones)
+
+# --- numbers the instructions carry: the instruction's address, for kb() and kw()
+c 04af bestScoresCompareInsn    ; the best scores, compared with a game's
+c 05b5 bestScoreThirdEndInsn    ; the last byte of the third best score
+c 05b8 bestScoreFourthEndInsn   ; and of the fourth
+c 05d4 playerSizeInsn           ; a player's record, in bytes
+c 0806 musicAfterMatchInsn      ; the place in the music after the match
+c 0866 matchLengthLowInsn       ; the digits the match runs through, at the slower screen mode
+c 087a matchLengthHighInsn      ; and at the faster
+c 0a0f musicAfterMatchWonInsn   ; the place in the music after a match is won
+c 0ba5 gameOverLight1Insn       ; the lights left on when a game is over
+c 0baa gameOverLight2Insn
+c 0baf gameOverLight3Insn
+c 0bec extraBallLightInsn       ; the light of a ball owed
+c 0bf7 serveXInsn               ; where the ball is put, hidden, as it is served
+c 0bfd serveYInsn
+c 0cff laneTopXInsn             ; where it appears at the top of the lane
+c 0d05 laneTopYInsn
+c 0d33 laneTopVxInsn            ; and its speed to the right there
+c 30e9 slopesLowInsn            ; the slopes, at the slower screen mode
+c 30f6 slopesHighInsn           ; and at the faster
+c 30f9 slopeCountInsn
+c 34f2 musicOnTuneInsn          ; the main tune, as the music is turned back on
+c 34f7 musicOnPlaceInsn         ; and the place in the song it starts from
+c 3522 musicOffPlaceInsn        ; the place in the music where nothing plays, as the music is turned off
+c 3873 timerSlotsInsn           ; how many timers
+c 3aac musicLastPlaceInsn       ; the last place of the table's music
+c 3ab3 silencePlaceInsn         ; the table's silence
+c 3ce9 flipperPiecesSizeInsn    ; the flippers' pieces, in bytes
+c 3cef flipperPiecesKeptInsn    ; where in video memory they are kept
+c 4283 thirdBallTopInsn         ; the ball's rows for which the third flipper is drawn with it
+c 428e thirdBallBottomInsn
+c 42a1 thirdScreenTopLowInsn    ; the screen's top past which it is drawn part way down the frame, slower mode
+c 42ae thirdScreenTopHighInsn   ; and faster
+c 4359 thirdFlipperRowInsn      ; the row above which the third flipper is drawn there
+c 44f5 animEntryInsn            ; the display animation's counters, in the sprite bank: the entry
+c 44fb animFramesLeftInsn       ; frames left
+c 4504 animRoundsLeftInsn       ; rounds left
+c 6fc3 animStateInsn            ; and where it is
+c 4afa dotLitInsn               ; the colour of a lit dot of the display
+c 4b01 dotUnlitInsn             ; and of an unlit one
+c 5425 bestScoreTopInsn         ; the top best score
+c 588e lightCountOutInsn        ; how many lights (as lightsOut has it)
+c 5912 lightCountInsn           ; how many lights
+c 5c87 musicRefusedInsn         ; the driver's answer that refuses a tune
+c 6377 bestScoresInsn           ; the best scores
+c 65db plungerAtInsn            ; the plunger's picture: where in video memory
+c 65e3 plungerRowsInsn          ; its rows
+c 65e9 plungerWidthInsn         ; its width
+c 6660 plungerPulledRowsInsn    ; its rows as it is pulled
+c 662a plungerVideoAtInsn       ; where it is drawn as it is pulled
+c 6a34 lightColourRecordsInsn   ; how many lights' colour records
+c 6eae longFontColoursInsn      ; the colours of the long messages' letters
+c 7001 animDotColoursInsn       ; the colours of the animation's dots
+
+# --- what only the original's start-up and drawing use (the referee leaves them out)
+d 22c5 driverFileName           ; the sound driver's file name, 13 bytes
+d 2ef8 ballDrawnAt              ; where the ball was last drawn, 4 bytes (only the drawing uses it)
+c 9240 drawingCode              ; the routines that draw, with their variables among the code, 0x1a00 bytes

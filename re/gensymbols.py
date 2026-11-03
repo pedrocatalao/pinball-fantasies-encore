@@ -58,9 +58,13 @@ def listing(t):
     return out
 first = listing(1)
 index = {a: i for i, (a, _) in enumerate(first)}
+# (by number, or by a name of this file: at::name stands for its address)
+address = {name: addr for _, addr, name, _ in pending}
 wanted = set()
 for src in sorted(dest.glob('Engine*.cpp')) + sorted(dest.glob('Flow*.cpp')):
-    wanted |= {int(x, 16) for x in re.findall(r'0x([0-9a-f]{4})\b', src.read_text())}
+    text = src.read_text()
+    wanted |= {int(x, 16) for x in re.findall(r'0x([0-9a-f]{4})\b', text)}
+    wanted |= {address[x] for x in re.findall(r'\bat::(\w+)', text) if x in address}
 wanted = sorted(a for a in wanted if a in index and 0x0200 <= a < 0x9240)
 found = 0
 for t in (2, 3, 4):

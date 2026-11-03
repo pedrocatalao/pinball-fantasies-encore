@@ -33,6 +33,10 @@ it). That has three consequences:
 - **One engine, four tables.** The four programs hold the same engine at different addresses.
   Names (`re/symbols`) are given to Party Land's addresses as they are understood, and
   `re/align.py` carries them to the other three.
+- **Names.** The engine's addresses are named in `re/symbols/table1.txt` (and so in
+  `Names.inc`: `at::flippersLive`), each table's own in a namespace in its header
+  (`stones::var::towerOpen`, `stones::awards::towerJackpot`). A name is only a number written
+  another way, so a rename must leave the machine code as it was.
 
 ```bash
 build/encore-oracle-table <the game's folder> <table 1-4> 100000 --all --start --wild --rough --flip <seed>
