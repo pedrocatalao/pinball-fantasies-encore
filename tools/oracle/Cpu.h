@@ -18,9 +18,57 @@ using i8 = std::int8_t;
 using i16 = std::int16_t;
 using i32 = std::int32_t;
 
+/// The bytes of a vector in the table at 0000:0000: the offset, then the segment.
+constexpr unsigned kVectorSize = 4;
+/// The offsets of a segment: 64 KB.
+constexpr int kSegmentBytes = 0x10000;
+
+/// The instructions, by their first byte. Where eight in a row take a register in their low
+/// three bits (inc, dec, push, pop, xchg, mov), the name is the first of them, and a register
+/// (Cpu::Reg, or Cpu::Reg8 for the bytes) is added to it.
+namespace op {
+constexpr u8 pushEs = 0x06, popEs = 0x07, pushCs = 0x0e, pushSs = 0x16, popSs = 0x17, pushDs = 0x1e, popDs = 0x1f;
+constexpr u8 segEs = 0x26, segCs = 0x2e, segSs = 0x36, segDs = 0x3e;  ///< prefixes: the segment to use
+constexpr u8 daa = 0x27, das = 0x2f, aaa = 0x37, aas = 0x3f;
+constexpr u8 inc = 0x40, dec = 0x48, push = 0x50, pop = 0x58;  ///< + a register
+constexpr u8 pusha = 0x60, popa = 0x61;
+constexpr u8 pushImm16 = 0x68, imulImm16 = 0x69, pushImm8 = 0x6a, imulImm8 = 0x6b;
+constexpr u8 insb = 0x6c, insw = 0x6d, outsb = 0x6e, outsw = 0x6f;
+/// The sixteen conditional jumps, each the one before it with the condition turned round.
+constexpr u8 jo = 0x70, jno = 0x71, jb = 0x72, jnb = 0x73, jz = 0x74, jnz = 0x75, jbe = 0x76, ja = 0x77;
+constexpr u8 js = 0x78, jns = 0x79, jp = 0x7a, jnp = 0x7b, jl = 0x7c, jnl = 0x7d, jle = 0x7e, jg = 0x7f;
+/// The arithmetic on a register or memory with a number; the operation is in the ModR/M byte.
+constexpr u8 aluRm8Imm = 0x80, aluRm16Imm = 0x81, aluRm8Imm82 = 0x82, aluRm16Imm8 = 0x83;
+constexpr u8 testRm8 = 0x84, testRm16 = 0x85, xchgRm8 = 0x86, xchgRm16 = 0x87;
+constexpr u8 movRm8Reg = 0x88, movRm16Reg = 0x89, movReg8Rm = 0x8a, movReg16Rm = 0x8b;
+constexpr u8 movRmSeg = 0x8c, lea = 0x8d, movSegRm = 0x8e, popRm = 0x8f;
+constexpr u8 nop = 0x90, xchgAx = 0x90;  ///< xchgAx + a register; with ax itself it is the nop
+constexpr u8 cbw = 0x98, cwd = 0x99, callFar = 0x9a, wait = 0x9b, pushf = 0x9c, popf = 0x9d, sahf = 0x9e, lahf = 0x9f;
+constexpr u8 movAlMem = 0xa0, movAxMem = 0xa1, movMemAl = 0xa2, movMemAx = 0xa3;
+constexpr u8 movsb = 0xa4, movsw = 0xa5, cmpsb = 0xa6, cmpsw = 0xa7, testAlImm = 0xa8, testAxImm = 0xa9;
+constexpr u8 stosb = 0xaa, stosw = 0xab, lodsb = 0xac, lodsw = 0xad, scasb = 0xae, scasw = 0xaf;
+constexpr u8 movReg8Imm = 0xb0, movReg16Imm = 0xb8;  ///< + a register
+constexpr u8 shiftRm8Imm = 0xc0, shiftRm16Imm = 0xc1, retImm = 0xc2, ret = 0xc3, les = 0xc4, lds = 0xc5;
+constexpr u8 movRm8Imm = 0xc6, movRm16Imm = 0xc7, enter = 0xc8, leave = 0xc9, retfImm = 0xca, retf = 0xcb;
+constexpr u8 int3 = 0xcc, intImm = 0xcd, iret = 0xcf;
+constexpr u8 shiftRm8By1 = 0xd0, shiftRm16By1 = 0xd1, shiftRm8ByCl = 0xd2, shiftRm16ByCl = 0xd3;
+constexpr u8 aam = 0xd4, aad = 0xd5, xlat = 0xd7;
+constexpr u8 loopne = 0xe0, loope = 0xe1, loop = 0xe2, jcxz = 0xe3;
+constexpr u8 inAlImm = 0xe4, inAxImm = 0xe5, outImmAl = 0xe6, outImmAx = 0xe7;
+constexpr u8 call = 0xe8, jmp = 0xe9, jmpFar = 0xea, jmpShort = 0xeb;
+constexpr u8 inAlDx = 0xec, inAxDx = 0xed, outDxAl = 0xee, outDxAx = 0xef;
+constexpr u8 lock = 0xf0, repne = 0xf2, rep = 0xf3;  ///< prefixes
+constexpr u8 hlt = 0xf4, cmc = 0xf5, unaryRm8 = 0xf6, unaryRm16 = 0xf7;
+constexpr u8 clc = 0xf8, stc = 0xf9, cli = 0xfa, sti = 0xfb, cld = 0xfc, std_ = 0xfd;  ///< std_: the name std is taken
+constexpr u8 incDecRm8 = 0xfe, groupRm16 = 0xff;  ///< inc, dec; and inc, dec, call, jmp, push
+}  // namespace op
+
 struct CpuError : std::runtime_error {
   using std::runtime_error::runtime_error;
 };
+
+/// What a port nothing answers reads as: every bit set.
+constexpr u8 kOpenBus = 0xff;
 
 class Bus {
  public:
@@ -37,15 +85,24 @@ class Bus {
 class Cpu {
  public:
   enum Reg { AX, CX, DX, BX, SP, BP, SI, DI };
+  /// The byte registers as the instructions number them: the low halves, then the high.
+  enum Reg8 { AL, CL, DL, BL, AH, CH, DH, BH };
   enum Seg { ES, CS, SS, DS };
+  static constexpr int kRegs = 8, kSegRegs = 4;
   enum Flag : u16 { CF = 1, PF = 4, AF = 0x10, ZF = 0x40, SF = 0x80, TF = 0x100, IF = 0x200, DF = 0x400, OF = 0x800 };
+  /// Bit 1 of the flags, which is always set.
+  static constexpr u16 kFlagsFixed = 2;
+  /// The flags popf and iret can change (OF DF IF TF SF ZF AF PF CF), and those sahf can.
+  static constexpr u16 kFlagsWritable = 0x0fd5, kFlagsSahf = 0xd5;
+  /// The most instructions a routine called from outside may take to return.
+  static constexpr std::uint64_t kCallLimit = 50'000'000;
 
   explicit Cpu(Bus& bus) : bus_(bus) {}
 
-  u16 r[8]{};
-  u16 s[4]{};
+  u16 r[kRegs]{};
+  u16 s[kSegRegs]{};
   u16 ip = 0;
-  u16 flags = 2;
+  u16 flags = kFlagsFixed;
   bool halted = false;
   /// Called when the instruction at a place (segment << 16 | offset) is about to run.
   std::map<u32, std::function<void()>> watch;
@@ -80,9 +137,9 @@ class Cpu {
   /// Calls a far routine that ends with retf, as an interrupt handler of the machine would:
   /// every register is as it was afterwards. Throws if it has not returned after `limit`.
   /// Returns what the routine left in AX.
-  u16 callFar(u16 seg, u16 off, std::uint64_t limit = 50'000'000);
+  u16 callFar(u16 seg, u16 off, std::uint64_t limit = kCallLimit);
   /// The same for a routine that ends with iret (an interrupt vector).
-  u16 callInterrupt(u16 seg, u16 off, std::uint64_t limit = 50'000'000);
+  u16 callInterrupt(u16 seg, u16 off, std::uint64_t limit = kCallLimit);
   /// The vector in memory.
   void raise(u8 number);
 
@@ -121,8 +178,10 @@ class Cpu {
   [[noreturn]] void bad(u8 opcode);
 
   Bus& bus_;
-  int segOverride_ = -1;
-  int rep_ = 0;  ///< 0 none, 1 repe/rep, 2 repne
+  static constexpr int kNoOverride = -1;
+  static constexpr int kNoRep = 0, kRepe = 1, kRepne = 2;  ///< rep_: none, repe (or rep), repne
+  int segOverride_ = kNoOverride;
+  int rep_ = kNoRep;
   u16 startIp_ = 0;
   static constexpr int kHistory = 48;
   u32 history_[kHistory]{};
