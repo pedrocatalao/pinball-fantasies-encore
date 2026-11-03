@@ -53,17 +53,17 @@ void TableScreen::attach(Engine& engine) {
   // Each flipper's shape at every step of its travel, from the pictures of it that the ball is
   // stopped by: taken now, before the table's start-up adds the wall round it to them (cs:3d81).
   art_.clear();
-  const u16 pictures[3] = {engine.S(0x4c54), engine.S(0x4fc2), engine.S(0x4eb6)};
+  const u16 pictures[3] = {engine.S(at::leftFlipperMasks), engine.S(at::rightFlipperMasks), engine.S(at::thirdFlipperMasks)};
   int which = 0;
-  for (u16 f = engine.A(0x6950); which < 3 && engine.nativeB(f) != 0; f = static_cast<u16>(f + 0x3c), ++which) {
+  for (u16 f = engine.A(at::flippers); which < 3 && engine.nativeB(f) != 0; f = static_cast<u16>(f + 0x3c), ++which) {
     FlipperArt art;
-    const int bytes = engine.nativeW(static_cast<u16>(f + 0x06)) * 2;
+    const int bytes = engine.nativeW(static_cast<u16>(f + flipperRec::width)) * 2;
     art.record = f;
-    art.x = engine.nativeW(static_cast<u16>(f + 0x02));
-    art.y = engine.nativeW(static_cast<u16>(f + 0x04));
+    art.x = engine.nativeW(static_cast<u16>(f + flipperRec::x));
+    art.y = engine.nativeW(static_cast<u16>(f + flipperRec::y));
     art.w = bytes * 8;
-    art.h = engine.nativeW(static_cast<u16>(f + 0x08));
-    art.steps = engine.nativeW(static_cast<u16>(f + 0x20)) + 1;
+    art.h = engine.nativeW(static_cast<u16>(f + flipperRec::rows));
+    art.steps = engine.nativeW(static_cast<u16>(f + flipperRec::lastPicture)) + 1;
     const std::size_t pixels = static_cast<std::size_t>(art.w) * art.h;
     art.shape.assign(static_cast<std::size_t>(art.steps) * pixels, 0);
     for (int q = 0; q < art.steps; ++q)
@@ -144,6 +144,11 @@ void TableScreen::followServe(Engine& e) {
   if (hidden) servedFrom_ = {shown.ballX, shown.ballY};
 }
 
+/// Where in the cover's segment (at::coverGround) the maps of what covers the ball begin.
+namespace coverMap {
+constexpr u16 playfield = 0x0100, ramps = 0x5f80;
+}  // namespace coverMap
+
 /// What the artwork covers of the ball. The original hides the ball dot by dot, and where
 /// something is to be seen through (the criss-cross rail on Stones 'n Bones) hides every
 /// other dot; for a picture of the ball at any size that is told as how much of the ball
@@ -153,9 +158,9 @@ void TableScreen::followServe(Engine& e) {
 /// everywhere would leave a rim of the ball visible wherever a solid cover ends, since a dot
 /// within two of that edge averages below its own value.
 void TableScreen::buildCover(Engine& e) {
-  const u16 maps = e.S(0x2f94);
+  const u16 maps = e.S(at::coverGround);
   for (std::size_t layer = 0; layer < 2; ++layer) {
-    const u16 map = layer ? 0x5f80 : 0x0100;
+    const u16 map = layer ? coverMap::ramps : coverMap::playfield;
     Bytes hides(static_cast<std::size_t>(kWidth) * TableData::kHeight);
     for (int y = 0; y < TableData::kHeight; ++y)
       for (int x = 0; x < kWidth; ++x)
@@ -301,8 +306,8 @@ void TableScreen::buildFlipperArt(Engine& e) {
           }
       return std::array<double, 3>{cx, cy, 0.5 * std::atan2(2 * xy, xx - yy)};
     };
-    double ox = static_cast<i16>(e.nativeW(static_cast<u16>(art.record + 0x12))) - art.x;
-    double oy = static_cast<i16>(e.nativeW(static_cast<u16>(art.record + 0x14))) - art.y;
+    double ox = static_cast<i16>(e.nativeW(static_cast<u16>(art.record + flipperRec::originX))) - art.x;
+    double oy = static_cast<i16>(e.nativeW(static_cast<u16>(art.record + flipperRec::originY))) - art.y;
     if (steps > 1) {
       const auto m0 = moments(&coveredAt[0]), m1 = moments(&coveredAt[static_cast<std::size_t>(steps - 1) * pixels]);
       double turn = m1[2] - m0[2];
@@ -380,7 +385,7 @@ void TableScreen::sharedFlipper(const FlipperArt& art, HdSprite& s) const {
 }
 
 float TableScreen::flipperAngle(Engine& e, const FlipperArt& art) const {
-  const int pos = std::max<int>(static_cast<i16>(e.nativeW(static_cast<u16>(art.record + 0x1c))), 0);
+  const int pos = std::max<int>(static_cast<i16>(e.nativeW(static_cast<u16>(art.record + flipperRec::position))), 0);
   const std::size_t q = std::min<std::size_t>(static_cast<std::size_t>(pos / 55), art.angle.size() - 1);
   const std::size_t next = std::min<std::size_t>(q + 1, art.angle.size() - 1);
   const float frac = static_cast<float>(pos % 55) / 55.0f;
@@ -406,9 +411,10 @@ void TableScreen::buildLampAreas(Engine& e) {
   lampAreas_.assign(static_cast<std::size_t>(w) * h, 0);
   std::array<u8, 256> ofColour{};
   lamps_.clear();
-  for (u16 light = 1, lights = e.kw(0x5912, 1); light <= lights && light < 256; ++light) {
-    const u16 record = e.W(0x12bd, static_cast<u16>((light - 1) * 2));
-    const u16 first = e.nativeB(record), colours = static_cast<u16>(e.nativeB(static_cast<u16>(record + 1)) / 3);
+  for (u16 light = 1, lights = e.kw(at::lightCountInsn, 1); light <= lights && light < 256; ++light) {
+    const u16 record = e.W(at::lightRecords, static_cast<u16>((light - 1) * 2));
+    const u16 first = e.nativeB(static_cast<u16>(record + lightRec::firstColour)),
+              colours = static_cast<u16>(e.nativeB(static_cast<u16>(record + lightRec::bytes)) / 3);
     for (u16 i = 0; i < colours && first + i < 256; ++i) ofColour[first + i] = static_cast<u8>(light);
     lamps_.push_back(record);
   }
@@ -554,11 +560,11 @@ void TableScreen::buildLampAreas(Engine& e) {
 /// done here, list by list, on the picture kept for the screen.
 void TableScreen::turnFlipper(Engine& e, Bytes& picture, u16 record, u16 was, u16 now) const {
   auto w = [&](u16 o) { return e.nativeW(static_cast<u16>(record + o)); };
-  const u16 lists = e.S(0x0c0f);
+  const u16 lists = e.S(at::flipperPictures);
   const auto& video = e.videoMemory();
-  const std::size_t base = static_cast<std::size_t>(w(0x04)) * 0x54 + (w(0x02) >> 2);  // in groups of four dots, 84 to a row
-  const u16 stride = w(0x38);
-  u16 list = now > was ? static_cast<u16>(was * stride + w(0x36)) : static_cast<u16>(w(0x30) - was * stride);
+  const std::size_t base = static_cast<std::size_t>(w(flipperRec::y)) * 0x54 + (w(flipperRec::x) >> 2);  // in groups of four dots, 84 to a row
+  const u16 stride = w(flipperRec::listSize);
+  u16 list = now > was ? static_cast<u16>(was * stride + w(flipperRec::lists)) : static_cast<u16>(w(flipperRec::backLists) - was * stride);
   int steps = now > was ? now - was : was - now;
   while (steps > 0) {
     int left = steps > 9 ? 9 : steps;
@@ -584,11 +590,11 @@ void TableScreen::lampsLit(Engine& e, int lamps, std::array<bool, 256>& lit) con
   const auto& dac = e.colours();
   for (std::size_t l = 0; l < lamps_.size(); ++l) {
     const u16 record = lamps_[l];
-    const u16 colour = e.nativeB(record);
+    const u16 colour = e.nativeB(static_cast<u16>(record + lightRec::firstColour));
     int best = 0;
     bool on = false;
-    for (u16 part = 0; part < 3 && e.nativeB(static_cast<u16>(record + 1)) >= 3; ++part) {
-      const int full = e.nativeB(static_cast<u16>(record + 2 + part)) & 0x3f, half = full >> 1;
+    for (u16 part = 0; part < 3 && e.nativeB(static_cast<u16>(record + lightRec::bytes)) >= 3; ++part) {
+      const int full = e.nativeB(static_cast<u16>(record + lightRec::colours + part)) & 0x3f, half = full >> 1;
       if (full - half <= best) continue;
       best = full - half;
       on = dac[colour * 3u + part] * 2 > full + half;
@@ -600,8 +606,8 @@ void TableScreen::lampsLit(Engine& e, int lamps, std::array<bool, 256>& lit) con
 void TableScreen::colours(Engine& e, Rgb* out, int lamps) const {
   std::array<u8, 768> dac = e.colours();
   if (lamps != 0)
-    for (u16 light = 1, lights = e.kw(0x5912, 1); light <= lights; ++light) {
-      u16 record = e.W(0x12bd, static_cast<u16>((light - 1) * 2));
+    for (u16 light = 1, lights = e.kw(at::lightCountInsn, 1); light <= lights; ++light) {
+      u16 record = e.W(at::lightRecords, static_cast<u16>((light - 1) * 2));
       u16 at = static_cast<u16>(e.nativeB(record++) * 3);
       const u8 bytes = e.nativeB(record++);
       for (u8 i = 0; i < bytes && at < 768; ++i, ++at) {
@@ -622,7 +628,7 @@ void TableScreen::draw(Engine& e, u8* frame, const View& v, HdFrame* hd) const {
     std::memcpy(frame + static_cast<std::size_t>(y) * kWidth, picture_.data() + static_cast<std::size_t>(row) * kWidth, kWidth);
   }
   const Engine::Shown& shown = e.shown();
-  const bool waiting = e.B(0x3713) == 0xff;  // no game: the original has no ball to show
+  const bool waiting = e.B(at::attract) == 0xff;  // no game: the original has no ball to show
   if (hd && !lampAreas_.empty()) {
     // Every dot of the window is a dot of the playfield's picture: the unlit one, with how lit
     // the spot is alongside, which the renderer blends the lit picture in by. What a lamp
@@ -676,10 +682,10 @@ void TableScreen::draw(Engine& e, u8* frame, const View& v, HdFrame* hd) const {
   };
   // the plunger (cs:6600): its picture moves down as it is pulled, and what it leaves is dark
   {
-    const int width = e.kw(0x65e9, 1), rows = e.kw(0x6660, 1);
-    const int at = e.kw(0x662a, 1) - 0x0ad4;  // where in the video card's memory, past the display
+    const int width = e.kw(at::plungerWidthInsn, 1), rows = e.kw(at::plungerPulledRowsInsn, 1);
+    const int at = e.kw(at::plungerVideoAtInsn, 1) - video::picture;  // where in the video card's memory, past the display
     const int row0 = at / 0x54, x0 = (at % 0x54) * 4;
-    const int pull = static_cast<i8>((e.B(0x23a5) >> 1) - 3);
+    const int pull = static_cast<i8>((e.B(at::plungerPull) >> 1) - 3);
     const int down = pull < 0 ? 0 : pull, skip = pull < 0 ? -pull : 0;
     const auto plunger = static_cast<u16>(HdPicture::Plunger);
     if (hd) {
@@ -706,8 +712,8 @@ void TableScreen::draw(Engine& e, u8* frame, const View& v, HdFrame* hd) const {
   }
   // the ball, but for the dots of it that something on the table passes over (cs:95b0)
   if (ball_.valid() && !hd) {
-    const u16 maps = e.S(0x2f94);
-    const u16 map = drawnOnRamps_ ? 0x5f80 : 0x0100;
+    const u16 maps = e.S(at::coverGround);
+    const u16 map = drawnOnRamps_ ? coverMap::ramps : coverMap::playfield;
     for (int y = 0; y < ball_.height; ++y)
       for (int x = 0; x < ball_.width; ++x) {
         if (!ball_.covers(x, y)) continue;

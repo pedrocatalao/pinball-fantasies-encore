@@ -116,12 +116,12 @@ TableGame::TableGame(ByteView prg, ByteView module, int table, const Setup& setu
   if (options_.angle == Angle::Higher) engine_->setAngle(2);
   // what the table this one's game was started on had that the game would not be the same without
   const Recording::Carry& carry = setup.carry;
-  if (carry.balls != 0) engine_->B(0x33dd) = carry.balls;
-  if (carry.noTilt) engine_->B(0x372a) = 0xff;
+  if (carry.balls != 0) engine_->B(at::balls) = carry.balls;
+  if (carry.noTilt) engine_->B(at::noTilt) = 0xff;
   if (carry.otherSteps) engine_->B(at::keys) ^= 4;
   if (carry.scrollPos != 0xffff) {
-    engine_->W(0x3383) = carry.scrollPos;
-    engine_->W(0x2f04) = carry.scrollAt;
+    engine_->W(at::lookAt) = carry.scrollPos;
+    engine_->W(at::scrollFixed) = carry.scrollAt;
   }
   if (screen_) screen_->started(*engine_);
   // (where the screen was on the table the game was started from, the fraction of a row too)
@@ -133,7 +133,7 @@ TableGame::TableGame(ByteView prg, ByteView module, int table, const Setup& setu
   recording_.options = options_;
   recording_.highScores = setup.highScores;
   recording_.carry = carry;
-  recording_.carry.balls = engine_->B(0x33dd);
+  recording_.carry.balls = engine_->B(at::balls);
   bestAtStart_ = savedScores_ = highScores();
   saved_ = options();
   link_->give();
@@ -143,14 +143,14 @@ TableGame::~TableGame() { music_.conductor = nullptr; }
 
 Bcd TableGame::score(int player) const {
   Bcd s;
-  const u16 at = static_cast<u16>(engine_->A(0x021a) + player * engine_->kw(0x05d4, 1));
+  const u16 at = static_cast<u16>(engine_->A(at::playerRecords) + player * engine_->kw(at::playerSizeInsn, 1));
   for (u16 i = 0; i < 12; ++i) s.digits[i] = engine_->nativeB(static_cast<u16>(at + i));
   return s;
 }
 
 HighScores TableGame::highScores() const {
   HighScores h{};
-  const u16 at = engine_->kw(0x6377, 1);
+  const u16 at = engine_->kw(at::bestScoresInsn, 1);
   for (u16 i = 0; i < 4; ++i) {
     for (u16 d = 0; d < 12; ++d) h[i].score.digits[d] = engine_->nativeB(static_cast<u16>(at + i * 0x10 + d));
     for (u16 c = 0; c < 3; ++c) h[i].name[c] = engine_->nativeB(static_cast<u16>(at + i * 0x10 + 12 + c));
@@ -170,9 +170,9 @@ bool TableGame::highScoresChanged() { return std::exchange(scoresChanged_, false
 
 Recording::Carry TableGame::carryOver() const {
   Recording::Carry c;
-  c.noTilt = engine_->B(0x372a) == 0xff;
+  c.noTilt = engine_->B(at::noTilt) == 0xff;
   c.otherSteps = (engine_->B(at::keys) & 4) != 0;
-  c.balls = engine_->B(0x33dd);
+  c.balls = engine_->B(at::balls);
   c.scrollPos = camera_.pos;
   c.scrollAt = static_cast<u16>(camera_.raw);
   return c;
@@ -182,10 +182,10 @@ bool TableGame::startsGame(Key key) const {
   if (!waiting() || left() || asking_) return false;
   if (key != Key::Enter && !(key >= Key::F1 && key <= Key::F8) && !(key >= Key::Digit1 && key <= Key::Digit8)) return false;
   // the table takes keys, more players may join, and it is not asking whether to be left
-  return engine_->CB(0x3475) != 0 && engine_->B(0x33e3) != 0 && engine_->CB(0x3195) != 0xff;
+  return engine_->CB(at::keysOn) != 0 && engine_->B(at::playersMayJoin) != 0 && engine_->CB(at::quitAsked) != 0xff;
 }
 
-bool TableGame::askingName() const { return engine_->W(0x33e7) == engine_->F(0x0609); }
+bool TableGame::askingName() const { return engine_->W(at::task) == engine_->F(at::highScoreName); }
 
 void TableGame::key(Key key, bool down) {
   if (left()) return;
@@ -285,13 +285,13 @@ int TableGame::cameraLead() const { return options_.resolution == Resolution::No
 
 TableGame::Sight TableGame::look() const {
   Engine& e = *engine_;
-  return {waiting(), e.ballParked() ? 525 : e.W(at::ballY).s(), e.W(0x3385), e.W(0x2f02)};
+  return {waiting(), e.ballParked() ? 525 : e.W(at::ballY).s(), e.W(at::lookAtSoft), e.W(at::screenTop)};
 }
 
 /// Where the screen looks this frame: after the ball, drifting while nobody plays, or moved
 /// by hand while paused. `s` is the table as the frame began.
 void TableGame::aim(const Sight& s) {
-  const u16 said = engine_->W(0x3383);
+  const u16 said = engine_->W(at::lookAt);
   if (engine_->isPaused()) {
     if (!engine_->asksToQuit() && cameraTop() > 0 && up_ != down_) {
       const int p = std::clamp(static_cast<int>(camera_.pos) + (down_ ? 4 : 0) - (up_ ? 4 : 0), 0, cameraTop());
@@ -381,7 +381,7 @@ void TableGame::frame() {
     failure_ = e.what();
     log::error("table " + std::to_string(table() + 1) + ", frame " + std::to_string(frames_) + ": " + failure_);
   }
-  if (engine_->exited() && engine_->CB(0x3732) == 0xff) {
+  if (engine_->exited() && engine_->CB(at::quit) == 0xff) {
     // Left from the waiting table's question: the display's script goes straight on to its
     // next step, whose first frame draws a part of it over the question, and the table stops
     // there. The question is what is shown while the table fades away.
@@ -413,8 +413,8 @@ void TableGame::frame() {
   // In a game of one player, the initials for a best score are in and have been shown (the
   // display's second with them, cs:06c0, is over): this version then asks whether the game is
   // to be sent online, and the table waits for the answer.
-  const u16 wait = engine_->W(0x33e7);
-  if (wait != lastWait_ && lastWait_ == engine_->F(0x06c0) && players() == 1 && failure_.empty()) {
+  const u16 wait = engine_->W(at::task);
+  if (wait != lastWait_ && lastWait_ == engine_->F(at::highScoreNameDone) && players() == 1 && failure_.empty()) {
     asking_ = true;
     engine_->write("SEND ONLINE \\Y OR N]");
   }
@@ -426,8 +426,8 @@ void TableGame::frame() {
   // pace, or more balls than the options give.
   if (now && recording_.games.empty()) {
     if (!playing_)
-      cheats_ = engine_->B(0x372a) == 0xff || (engine_->B(at::keys) & 4) != 0 ||
-                engine_->B(0x33dd) > options_.balls;
+      cheats_ = engine_->B(at::noTilt) == 0xff || (engine_->B(at::keys) & 4) != 0 ||
+                engine_->B(at::balls) > options_.balls;
     gentlest_ = gentlest_ < 0 ? engine_->angle() : std::min(gentlest_, engine_->angle());
   }
   // (a table left in the middle of a game leaves no game to keep)
@@ -435,7 +435,7 @@ void TableGame::frame() {
     Recording::Game g;
     g.endFrame = frames_;
     // (the last ball's number is one past the balls there are, once it has been played)
-    g.abandoned = !failure_.empty() || engine_->B(0x33dc) <= engine_->B(0x33dd);
+    g.abandoned = !failure_.empty() || engine_->B(at::ball) <= engine_->B(at::balls);
     for (int p = 0; p < players(); ++p) g.scores.push_back(score(p));
     const HighScores best = highScores();
     if (!g.scores.empty())
