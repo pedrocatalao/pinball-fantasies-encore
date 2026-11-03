@@ -1,22 +1,24 @@
 // Party Land's rules: what happens when the ball rolls into or hits each thing on the table
-// (TABLE1.PRG, cs:1104 to cs:2f9a). Routines are named by where they are in the program until
-// what they are for is clearer.
+// (TABLE1.PRG, cs:1104 to cs:2f9a). Routines are named after what they do, and say where they
+// are in the program.
 #include "engine/table/PartyLand.h"
 
 namespace encore {
 
+using namespace party;
+
 void PartyLand::addBonus(u16 amount) {
-  u16 times = W(0x33b1);
-  do addScore(0x3399, amount);
+  u16 times = W(var::bonusTimes);
+  do addScore(var::bonus, amount);
   while (times-- > 1);
 }
 
 void PartyLand::scored() {
-  B(0x33de) = 0xff;
-  W(0x36f6) = 0;
-  if (W(0x36f8) == 0xff) {
-    startScript(0x1acc);
-    W(0x36f8) = 0;
+  B(var::scoredThisBall) = 0xff;
+  W(var::idleFrames) = 0;
+  if (W(var::idleShowing) == 0xff) {
+    startScript(scripts::main);
+    W(var::idleShowing) = 0;
   }
 }
 
@@ -24,283 +26,288 @@ void PartyLand::scored() {
 /// two timers that do it start a frame or two after the ball has been put in its hole up
 /// there, and until then the screen would set off after the ball. Amended: it is held where
 /// it is from this moment, and goes up from this frame's turn of the timers on.
-void PartyLand::scrollUp() {
-  if (!amended) return addTimer(0x1217);
-  W(0x3387) = W(0x2f02);
-  W(0x3383) = W(0x2f02);
-  addTimer(0x1228);
+void PartyLand::startDropZoneScroll() {
+  if (!amended) return addTimer(timers::dropZoneScrollStart);
+  W(var::dropZoneScroll) = W(var::screenTop);
+  W(var::lookAt) = W(var::screenTop);
+  addTimer(timers::dropZoneScroll);
 }
 
-void PartyLand::eject() {
+void PartyLand::startDropZone() {
   hole();
-  scrollUp();
-  addTimer(0x1175);
-  W(0x3387) = W(0x2f02);
+  startDropZoneScroll();
+  addTimer(timers::dropZoneWait);
+  W(var::dropZoneScroll) = W(var::screenTop);
 }
 
-bool PartyLand::allFive() { return W(0x35bb) == 0xffff && W(0x35bd) == 0xffff && B(0x35bf) == 0xff; }
+bool PartyLand::partyAllLit() {
+  return W(var::lightStates + lights::partyP) == 0xffff && W(var::lightStates + lights::partyR) == 0xffff &&
+         lightState(lights::partyY) == 0xff;
+}
 
-void PartyLand::fiveLit() {
-  if (!allFive()) return;
-  if (B(0x33e2) == 0xff) {
-    B(0x00cb) = 0xff;
+void PartyLand::checkPartyAll() {
+  if (!partyAllLit()) return;
+  if (B(var::modeRunning) == 0xff) {
+    B(var::pendingModeHit) = 0xff;
     return;
   }
-  at1287();
+  happyHour();
 }
 
-void PartyLand::at1287() {
-  award(0x0ba9);
-  B(0x230a) = 0x2b;
-  for (u8 light = 0x2a; light <= 0x2e; ++light) clearLight(light);
-  if (B(0x00a2) != 0xff && B(0x00a3) != 0xff) blink(0x23, B(0x00a5), 0x0e);
-  B(0x00a3) = 0xff;
-  B(0x05b1) = 0xff;
-  blink(0x20, 0, 8);
-  B(0x33e2) = 0xff;
-  B(0x33e4) = 0xff;
+void PartyLand::happyHour() {
+  award(awards::happyHour);
+  B(var::musicNext) = 0x2b;
+  for (u8 light = lights::partyP; light <= lights::partyY; ++light) clearLight(light);
+  if (B(var::demonJackpot) != 0xff && B(var::demonJackpotTimed) != 0xff) blink(lights::demonJackpot, B(var::lightPhaseDemon), 0x0e);
+  B(var::demonJackpotTimed) = 0xff;
+  B(var::modeHit) = 0xff;
+  blink(lights::happyHour, 0, 8);
+  B(var::modeRunning) = 0xff;
+  B(var::pendingMode) = 0xff;
 }
 
-void PartyLand::at12ea(bool carry) {
+void PartyLand::checkCrazyAll(bool carry) {
   if (!carry) return;
-  if (B(0x33e2) == 0xff) {
-    B(0x00cc) = 0xff;
+  if (B(var::modeRunning) == 0xff) {
+    B(var::pendingModeRamp) = 0xff;
     return;
   }
-  at1302();
+  megaLaugh();
 }
 
-void PartyLand::at1302() {
-  award(0x0be1);
-  B(0x230a) = 0x19;
-  if (B(0x00a2) != 0xff && B(0x00a3) != 0xff) blink(0x23, B(0x00a5), 0x0e);
-  B(0x00a3) = 0xff;
-  B(0x05b2) = 0xff;
-  blink(0x25, 0, 8);
-  B(0x33e2) = 0xff;
-  B(0x33e4) = 0xff;
+void PartyLand::megaLaugh() {
+  award(awards::megaLaugh);
+  B(var::musicNext) = 0x19;
+  if (B(var::demonJackpot) != 0xff && B(var::demonJackpotTimed) != 0xff) blink(lights::demonJackpot, B(var::lightPhaseDemon), 0x0e);
+  B(var::demonJackpotTimed) = 0xff;
+  B(var::modeRamp) = 0xff;
+  blink(lights::megaLaugh, 0, 8);
+  B(var::modeRunning) = 0xff;
+  B(var::pendingMode) = 0xff;
 }
 
-void PartyLand::hitScore() {
-  effect(0x0c19);
-  addScore(0x45b6, 0x0184);
-  at2b9d();
-  addBonus(0x0190);
-  B(0x33de) = 0xff;
+void PartyLand::duckScore() {
+  effect(sounds::hitDuck);
+  addScore(var::score, points::k7510);
+  modeCountHit();
+  addBonus(points::k750);
+  B(var::scoredThisBall) = 0xff;
 }
 
 /// cs:156d: true when all three drop targets are down.
-bool PartyLand::at156d() {
-  if (B(0x35c5) != 0 || B(0x35c6) != 0 || B(0x35c7) != 0) return false;
-  award(0x0895);
-  B(0x008b) = 0xff;
-  B(0x008c) = 0xff;
-  for (u8 light : {u8{0x10}, u8{0x12}, u8{0x18}}) stopBlink(light);
-  for (u8 light : {u8{0x10}, u8{0x12}, u8{0x18}}) blink(light, 0, 2);
-  addTimer(0x164b);
-  if (B(0x0087, B(0x008a)) != 0xff) {
-    if (B(0x008a) == 1) {
-      u8 start = static_cast<u8>(B(0x0086) + 8);
+bool PartyLand::duckAll() {
+  if (lightState(lights::duckDrop0) != 0 || lightState(lights::duckDrop1) != 0 || lightState(lights::duckDrop2) != 0) return false;
+  award(awards::duckAll);
+  B(var::duckHit) = 0xff;
+  B(var::duckHit + 1) = 0xff;
+  for (u8 light : {lights::duck0, lights::duck1, lights::duck2}) stopBlink(light);
+  for (u8 light : {lights::duck0, lights::duck1, lights::duck2}) blink(light, 0, 2);
+  addTimer(timers::duckAllUnblink);
+  if (B(var::snackLit, B(var::snack)) != 0xff) {
+    if (B(var::snack) == 1) {
+      u8 start = static_cast<u8>(B(var::lightPhaseSnack) + 8);
       if (start >= 16) start = static_cast<u8>(start - 16);
-      blink(0x11, start, 8);
-      B(0x0088) = 0xff;
-    } else if (B(0x008a) > 1) {
-      blink(0x14, B(0x0086), 8);
-      B(0x0089) = 0xff;
+      blink(lights::snack1, start, 8);
+      B(var::snackLit + 1) = 0xff;
+    } else if (B(var::snack) > 1) {
+      blink(lights::snack2, B(var::lightPhaseSnack), 8);
+      B(var::snackLit + 2) = 0xff;
     } else {
-      blink(0x17, B(0x0086), 8);
-      B(0x0087) = 0xff;
+      blink(lights::snack0, B(var::lightPhaseSnack), 8);
+      B(var::snackLit) = 0xff;
     }
   }
-  if (++B(0x008a) == 3) B(0x008a) = 0;
+  if (++B(var::snack) == 3) B(var::snack) = 0;
   return true;
 }
 
-bool PartyLand::at19c7() {
-  at2420();
-  B(0x00da) = award(B(0x00db) == 0xff ? 0x0a3a : 0x0a1e) ? 1 : 0;
-  if (!nextOfRow(0x06ce)) return false;
-  for (u8 light : {u8{0x1c}, u8{0x1f}, u8{0x22}, u8{0x26}, u8{0x29}}) clearLight(light);
+bool PartyLand::crazyLetter() {
+  incJackpot();
+  B(var::crazyShown) = award(B(var::crazyFromArcade) == 0xff ? awards::arcadeCrazy : awards::orbitCrazy) ? 1 : 0;
+  if (!nextOfRow(var::crazyRow)) return false;
+  for (u8 light : {lights::crazy4, lights::crazy3, lights::crazy2, lights::crazy1, lights::crazy0}) clearLight(light);
   return true;
 }
 
-void PartyLand::at1b19() {
-  stopBlink(0x0b);
-  lightOff(0x0b);
-  B(0x009a) = 0;
+void PartyLand::cycloneX5End() {
+  stopBlink(lights::cycloneX5);
+  lightOff(lights::cycloneX5);
+  B(var::cycloneX5) = 0;
 }
 
-void PartyLand::at1c82() {
-  if (B(0x35bb) == 0xff) return;
-  award(0x070d);
-  setLight(0x2a);
-  fiveLit();
+void PartyLand::partyP() {
+  if (lightState(lights::partyP) == 0xff) return;
+  award(awards::partyP);
+  setLight(lights::partyP);
+  checkPartyAll();
 }
 
 /// What the arcade gives. The original goes by a count of the frames played, through a list
 /// of 128 (ds:05b4), and gives it a frame later. Amended: one of the six by chance proper,
 /// each as likely as the others, and at once.
-void PartyLand::at1ddb() {
-  if (!amended) return addTimer(W(0x0634, B(0x05b4, static_cast<u16>(B(0x0093) >> 1))));
-  static constexpr u16 kPrizes[6] = {0x1dfa, 0x1e27, 0x1e62, 0x1e95, 0x1ec8, 0x1f0a};
-  const u16 running = W(0x3381);
+void PartyLand::arcadePickReward() {
+  if (!amended) return addTimer(W(var::arcadePrizes, B(var::arcadeList, static_cast<u16>(B(var::frames) >> 1))));
+  static constexpr u16 kPrizes[6] = {code::arcadeSideExtraBall, code::arcadeCrazy, code::arcade1M, code::arcade5M, code::arcade500k, code::arcadeNoScore};
+  const u16 running = W(var::timerSlot);
   addTimer(kPrizes[chance(6, 0)]);
-  W(0x3381) = bx;
+  W(var::timerSlot) = bx;
   call(nativeW(bx));  // (each of them ends itself)
-  W(0x3381) = running;
+  W(var::timerSlot) = running;
 }
 
-void PartyLand::at1efb() {
-  W(0x05af) = 0x0a;
-  addTimer(0x1104);
+void PartyLand::arcadeNotShown() {
+  W(var::dropZoneDelay) = 0x0a;
+  addTimer(timers::dropZoneStart);
   endTimer();
 }
 
-bool PartyLand::at232a() {
-  if (B(0x00a0) != 0xff) return false;
-  award(0x0879);
-  stopBlink(0x1b);
-  lightOff(0x1b);
-  B(0x00a0) = 0;
-  W(0x00a6) = B(0x33e2) == 0xff ? 0x0f : 0xa0;
+bool PartyLand::demon5M() {
+  if (B(var::demon5M) != 0xff) return false;
+  award(awards::demon5M);
+  stopBlink(lights::demon5M);
+  lightOff(lights::demon5M);
+  B(var::demon5M) = 0;
+  W(var::demonTimeout) = B(var::modeRunning) == 0xff ? 0x0f : 0xa0;
   return true;
 }
 
-bool PartyLand::at2364() {
-  if (B(0x00a1) != 0xff) return false;
-  stopBlink(0x1e);
-  lightOff(0x1e);
-  setLight(0x33);
-  ++B(0x00ce);
-  award(0x09e6);
-  B(0x00a1) = 0;
-  W(0x00a6) = B(0x33e2) == 0xff ? 0x0f : 0x140;
+bool PartyLand::demonExtraBall() {
+  if (B(var::demonExtraBall) != 0xff) return false;
+  stopBlink(lights::demonExtraBall);
+  lightOff(lights::demonExtraBall);
+  setLight(lights::extraBall);
+  ++B(var::extraBalls);
+  award(awards::demonExtraBall);
+  B(var::demonExtraBall) = 0;
+  W(var::demonTimeout) = B(var::modeRunning) == 0xff ? 0x0f : 0x140;
   return true;
 }
 
-bool PartyLand::at23a7() {
-  if (B(0x00a2) != 0xff && B(0x00a3) != 0xff) return false;
-  B(0x00a2) = 0;
-  B(0x00a3) = 0;
-  stopBlink(0x23);
-  lightOff(0x23);
-  music(0x0ca2);
-  startScript(B(0x33e2) != 0xff ? 0x1647 : B(0x05b1) != 0xff ? 0x166f : 0x1651);
-  addScore(0x45b6, 0x010c);
-  for (u16 i = 0; i < 12; ++i) B(0x010c, i) = B(0x0124, i);
-  W(0x00a6) = 0x19a;
+bool PartyLand::demonJackpot() {
+  if (B(var::demonJackpot) != 0xff && B(var::demonJackpotTimed) != 0xff) return false;
+  B(var::demonJackpot) = 0;
+  B(var::demonJackpotTimed) = 0;
+  stopBlink(lights::demonJackpot);
+  lightOff(lights::demonJackpot);
+  music(tunes::jackpot);
+  startScript(B(var::modeRunning) != 0xff ? scripts::jackpot : B(var::modeHit) != 0xff ? scripts::jackpotModeRamp : scripts::jackpotModeHit);
+  addScore(var::score, var::jackpot);
+  for (u16 i = 0; i < 12; ++i) B(var::jackpot, i) = B(var::jackpotStart, i);
+  W(var::demonTimeout) = 0x19a;
   return true;
 }
 
-void PartyLand::at26b0() {
-  if (B(0x35be) == 0xff) return;
-  setLight(0x2d);
-  award(0x0761);
-  fiveLit();
+void PartyLand::partyT() {
+  if (lightState(lights::partyT) == 0xff) return;
+  setLight(lights::partyT);
+  award(awards::partyT);
+  checkPartyAll();
 }
 
-bool PartyLand::laneScore() {
-  addScore(0x45b6, 0x019c);
+bool PartyLand::pukeScore() {
+  addScore(var::score, points::k20070);
   scored();
-  addBonus(0x01a8);
-  at2420();
-  return B(0x3592) == 0xff && B(0x3593) == 0xff && B(0x3595) == 0xff && B(0x3596) == 0xff;
+  addBonus(points::k1000);
+  incJackpot();
+  return lightState(lights::puke0) == 0xff && lightState(lights::puke3) == 0xff && lightState(lights::puke1) == 0xff &&
+         lightState(lights::puke2) == 0xff;
 }
 
 /// cs:28f5: all four lanes lit.
-void PartyLand::at28f5() {
+void PartyLand::pukeAll() {
   auto later = [](u8 start, u8 half) { start = static_cast<u8>(start + half); return start >= half * 2 ? static_cast<u8>(start - half * 2) : start; };
-  blink(1, B(0x00a4), 2);
-  blink(5, B(0x00a4), 2);
-  blink(2, later(B(0x00a4), 2), 2);
-  blink(4, later(B(0x00a4), 2), 2);
-  addTimer(0x28bb);
-  ++W(0x009e);
-  if (W(0x009e) == 1) {
-    if (B(0x00a0) != 0xff) {
-      blink(0x1b, B(0x00a5), 0x0e);
-      B(0x00a0) = 0xff;
+  blink(lights::puke0, B(var::lightPhasePuke), 2);
+  blink(lights::puke2, B(var::lightPhasePuke), 2);
+  blink(lights::puke3, later(B(var::lightPhasePuke), 2), 2);
+  blink(lights::puke1, later(B(var::lightPhasePuke), 2), 2);
+  addTimer(timers::pukeUnblinkAll);
+  ++W(var::demonReward);
+  if (W(var::demonReward) == 1) {
+    if (B(var::demon5M) != 0xff) {
+      blink(lights::demon5M, B(var::lightPhaseDemon), 0x0e);
+      B(var::demon5M) = 0xff;
     }
-  } else if (W(0x009e) == 2) {
-    if (B(0x00a1) != 0xff) {
-      blink(0x1e, later(B(0x00a5), 0x0e), 0x0e);
-      B(0x00a1) = 0xff;
+  } else if (W(var::demonReward) == 2) {
+    if (B(var::demonExtraBall) != 0xff) {
+      blink(lights::demonExtraBall, later(B(var::lightPhaseDemon), 0x0e), 0x0e);
+      B(var::demonExtraBall) = 0xff;
     }
-  } else if (W(0x009e) == 3 && B(0x00a2) != 0xff) {
-    if (B(0x00a3) != 0xff) blink(0x23, B(0x00a5), 0x0e);
-    B(0x00a2) = 0xff;
+  } else if (W(var::demonReward) == 3 && B(var::demonJackpot) != 0xff) {
+    if (B(var::demonJackpotTimed) != 0xff) blink(lights::demonJackpot, B(var::lightPhaseDemon), 0x0e);
+    B(var::demonJackpot) = 0xff;
   }
-  if (B(0x35bf) != 0xff) {
-    setLight(0x2e);
-    award(0x077d);
-    fiveLit();
+  if (lightState(lights::partyY) != 0xff) {
+    setLight(lights::partyY);
+    award(awards::partyY);
+    checkPartyAll();
   }
 }
 
-void PartyLand::at2a94() {
-  if (B(0x35bd) != 0xff) {
-    setLight(0x2c);
-    award(0x0745);
-    fiveLit();
+void PartyLand::partyR() {
+  if (lightState(lights::partyR) != 0xff) {
+    setLight(lights::partyR);
+    award(awards::partyR);
+    checkPartyAll();
   }
-  at1b19();
+  cycloneX5End();
 }
 
-void PartyLand::at2b9d() {
-  if (B(0x05b1) != 0xff) return;
-  addScore(0x00f4, 0x016c);
-  B(0x33df) = 0xff;
+void PartyLand::modeCountHit() {
+  if (B(var::modeHit) != 0xff) return;
+  addScore(var::modeHitScore, points::k1000000);
+  B(var::modeScored) = 0xff;
 }
 
-void PartyLand::at2bb7() {
-  if (B(0x05b2) != 0xff) return;
-  addScore(0x0100, 0x0178);
-  B(0x33df) = 0xff;
+void PartyLand::modeCountRamp() {
+  if (B(var::modeRamp) != 0xff) return;
+  addScore(var::modeRampScore, points::k5000000);
+  B(var::modeScored) = 0xff;
 }
 
-void PartyLand::at2540() {
-  clearLight(0x27);
-  award(0x0a02);
-  setLight(0x33);
-  ++B(0x00ce);
-  B(0x00d2) = 0xff;
-  addTimer(0x2560);
+void PartyLand::sideExtraBall() {
+  clearLight(lights::sideExtraBall);
+  award(awards::sideExtraBall);
+  setLight(lights::extraBall);
+  ++B(var::extraBalls);
+  B(var::blockDrain) = 0xff;
+  addTimer(timers::sideExtraBallFinish);
 }
 
-void PartyLand::countdownTick() {
-  const bool nine = B(0x36f3) == 0x2a && B(0x36f4) == 0x39, nought = B(0x36f3) == 0x2a && B(0x36f4) == 0x37;
-  if (nine && B(0x00a2) != 0xff && B(0x00a3) == 0xff) {
-    stopBlink(0x23);
-    blink(0x23, 0, 2);
+void PartyLand::modeCheck() {
+  const bool nine = B(var::countdownTens) == 0x2a && B(var::countdownUnits) == 0x37 + 2,
+             nought = B(var::countdownTens) == 0x2a && B(var::countdownUnits) == 0x37;
+  if (nine && B(var::demonJackpot) != 0xff && B(var::demonJackpotTimed) == 0xff) {
+    stopBlink(lights::demonJackpot);
+    blink(lights::demonJackpot, 0, 2);
   }
   if (!nought) return;
-  const bool first = B(0x05b1) == 0xff;
+  const bool first = B(var::modeHit) == 0xff;
   if (first) {
-    W(0x33e9) = 0;
-    B(0x33e2) = 0;
-    B(0x05b1) = 0;
+    W(var::taskState) = 0;
+    B(var::modeRunning) = 0;
+    B(var::modeHit) = 0;
   } else {
-    B(0x33e2) = 0;
-    B(0x05b2) = 0;
-    W(0x33e9) = 0;
+    B(var::modeRunning) = 0;
+    B(var::modeRamp) = 0;
+    W(var::taskState) = 0;
   }
-  const u8 light = first ? 0x20 : 0x25;
+  const u8 light = first ? lights::happyHour : lights::megaLaugh;
   stopBlink(light);
   lightOff(light);
-  award(first ? 0x0bc5 : 0x0bfd);
-  B(0x230a) = 1;
-  stopBlink(0x23);
-  lightOff(0x23);
-  B(0x00a3) = 0;
-  if (B(0x00a2) == 0xff) blink(0x23, B(0x00a5), 0x0e);
+  award(first ? awards::happyHourEnd : awards::megaLaughEnd);
+  B(var::musicNext) = 1;
+  stopBlink(lights::demonJackpot);
+  lightOff(lights::demonJackpot);
+  B(var::demonJackpotTimed) = 0;
+  if (B(var::demonJackpot) == 0xff) blink(lights::demonJackpot, B(var::lightPhaseDemon), 0x0e);
   if (first) {
-    if (B(0x00cc) == 0xff) {
-      B(0x00cc) = 0;
-      addTimer(0x2f55);
+    if (B(var::pendingModeRamp) == 0xff) {
+      B(var::pendingModeRamp) = 0;
+      addTimer(timers::megaLaugh);
     }
-  } else if (B(0x00cb) == 0xff) {
-    B(0x00cb) = 0;
-    addTimer(0x2f40);
+  } else if (B(var::pendingModeHit) == 0xff) {
+    B(var::pendingModeHit) = 0;
+    addTimer(timers::happyHour);
   }
 }
 
@@ -311,71 +318,77 @@ void PartyLand::bindRules() {
       if (countTo(counter, limit)) then();
     });
   };
-  bind(0x2ddc, [this] { countdownTick(); });
+  bind(routines::tableModeSecond, [this] { modeCheck(); });
 
-  bind(0x1104, [this] {
-    if (B(0x33e2) != 0xff && !countTo(0x35d6, W(0x05af))) return;
-    eject();
+  bind(timers::dropZoneStart, [this] {
+    if (B(var::modeRunning) != 0xff && !countTo(counters::dropZoneStart, W(var::dropZoneDelay))) return;
+    startDropZone();
     endTimer();
   });
-  after(0x1175, 0x35d8, 0x1e, [this] {
-    blink(0x03, 0, 7);
-    blink(0x38, 0, 7);
-    addTimer(0x119f);
+  after(timers::dropZoneWait, counters::dropZoneWait, 0x1e, [this] {
+    blink(lights::dropZone0, 0, 7);
+    blink(lights::dropZone1, 0, 7);
+    addTimer(timers::dropZoneRelease);
     endTimer();
   });
-  after(0x119f, 0x35da, 0x1b, [this] {  // out of the hole, upwards on the ramps' side
-    W(0x3383) = 0xffff;
-    const u16 speed = chance(0x80, W(at::loopCounter) & 0x7f);
+  after(timers::dropZoneRelease, counters::dropZoneRelease, 0x1b, [this] {  // out of the hole, upwards on the ramps' side
+    W(var::lookAt) = 0xffff;
+    const u16 speed = chance(0x80, W(var::loopCounter) & 0x7f);
     hole();
-    B(at::layer) = 0xff;
-    W(at::ballVy) = speed;
-    effect(0x0c35);
-    stopBlink(0x03);
-    stopBlink(0x38);
+    B(var::layer) = 0xff;
+    W(var::ballVy) = speed;
+    effect(sounds::issueBall);
+    stopBlink(lights::dropZone0);
+    stopBlink(lights::dropZone1);
     endTimer();
   });
-  bind(0x1217, [this] {
-    addTimer(0x1228);
-    W(0x3387) = W(0x2f02);
+  bind(timers::dropZoneScrollStart, [this] {
+    addTimer(timers::dropZoneScroll);
+    W(var::dropZoneScroll) = W(var::screenTop);
     endTimer();
   });
-  bind(0x1228, [this] {  // the screen goes up to the top of the table
-    W(0x3387) -= 5;
-    if (W(0x3387).s() < 0) {
-      W(0x3383) = 0;
+  bind(timers::dropZoneScroll, [this] {  // the screen goes up to the top of the table
+    W(var::dropZoneScroll) -= 5;
+    if (W(var::dropZoneScroll).s() < 0) {
+      W(var::lookAt) = 0;
       endTimer();
     } else {
-      W(0x3383) = W(0x3387);
+      W(var::lookAt) = W(var::dropZoneScroll);
     }
   });
-  bind(0x134c, [this] {
-    if (B(0x0094) == 0xff) return;
-    effect(0x0c5d);
-    B(0x0094) = 0xff;
-    addTimer(0x1397);
-    if (B(0x008e) == 0xff) return;
-    B(0x008e) = 0xff;
-    blink(0x07, 0, 0x0c);
-    blink(0x37, 0, 0x0c);
+  bind(routines::arcadeButton, [this] {  // the arcade's button
+    if (B(var::arcadeButtonHit) == 0xff) return;
+    effect(sounds::arcadeButton);
+    B(var::arcadeButtonHit) = 0xff;
+    addTimer(timers::resetArcadeButton);
+    if (B(var::arcadeOpen) == 0xff) return;
+    B(var::arcadeOpen) = 0xff;
+    blink(lights::arcade0, 0, 0x0c);
+    blink(lights::arcade1, 0, 0x0c);
   });
-  after(0x1397, 0x35dc, 0x14, [this] {
-    B(0x0094) = 0;
+  after(timers::resetArcadeButton, counters::resetArcadeButton, 0x14, [this] {
+    B(var::arcadeButtonHit) = 0;
     endTimer();
   });
 
-  // the three drop targets
+  // the three drop targets, the ducks
   struct Target { u16 hit, lit, down, light, fall, counter, shape, at, width, flash, flashCount, flashTimer; };
-  for (const Target t : {Target{0x13ae, 0x35c5, 0x008b, 0x34, 0x1419, 0x35de, 0x68d0, 0x2b5a, 2, 0x10, 0x13f5, 0x13f6},
-                         Target{0x142e, 0x35c6, 0x008c, 0x35, 0x1499, 0x35e0, 0x6910, 0x2e2b, 2, 0x12, 0x1475, 0x1476},
-                         Target{0x14ae, 0x35c7, 0x008d, 0x36, 0x1519, 0x35e2, 0x6930, 0x30fc, 1, 0x18, 0x14f5, 0x14f6}}) {
+  for (const Target t : {Target{routines::duck0, var::lightStates + lights::duckDrop0, var::duckHit, lights::duckDrop0, timers::duckDrop0,
+                                counters::duckDrop0, gates::duck0.dropped, gates::duck0.at, gates::duck0.width, lights::duck0,
+                                cvar::duckUnblink0, code::duckUnblink0},
+                         Target{routines::duck1, var::lightStates + lights::duckDrop1, var::duckHit + 1, lights::duckDrop1, timers::duckDrop1,
+                                counters::duckDrop1, gates::duck1.dropped, gates::duck1.at, gates::duck1.width, lights::duck1,
+                                cvar::duckUnblink1, code::duckUnblink1},
+                         Target{routines::duck2, var::lightStates + lights::duckDrop2, var::duckHit + 2, lights::duckDrop2, timers::duckDrop2,
+                                counters::duckDrop2, gates::duck2.dropped, gates::duck2.at, gates::duck2.width, lights::duck2,
+                                cvar::duckUnblink2, code::duckUnblink2}}) {
     bind(t.hit, [this, t] {
       if (B(t.lit) != 0xff || B(t.down) == 0xff) return;
       B(t.down) = 0xff;
       clearLight(static_cast<u8>(t.light));
       addTimer(t.fall);
-      hitScore();
-      if (at156d()) return;
+      duckScore();
+      if (duckAll()) return;
       addTimer(t.flashTimer);
       blink(static_cast<u8>(t.flash), 0, 3);
       CB(t.flashCount) = 0;
@@ -389,601 +402,606 @@ void PartyLand::bindRules() {
       ++CB(t.flashCount);
     });
     after(t.fall, t.counter, 0x14, [this, t] {  // it goes down: no longer in the ball's way
-      patchMask(0x3b74, t.at, t.shape, t.width, 0x0f);
+      patchMask(at::wallsGround, t.at, t.shape, t.width, 0x0f);
       endTimer();
     });
   }
-  after(0x164b, 0x35e4, 0x47, [this] {  // and all three stand again
-    for (u8 light : {u8{0x10}, u8{0x12}, u8{0x18}}) stopBlink(light);
-    setLight(0x34);
-    patchMask(0x3b74, 0x2b5a, 0x68b0, 2, 0x0f);
-    lightOff(0x10);
-    setLight(0x35);
-    patchMask(0x3b74, 0x2e2b, 0x68f0, 2, 0x0f);
-    lightOff(0x12);
-    setLight(0x36);
-    patchMask(0x3b74, 0x30fc, 0x6940, 1, 0x0f);
-    lightOff(0x18);
-    effect(0x0c1d);
-    B(0x008b) = 0;
-    B(0x008c) = 0;
-    B(0x008d) = 0;
+  after(timers::duckAllUnblink, counters::duckAllUnblink, 0x47, [this] {  // and all three stand again
+    for (u8 light : {lights::duck0, lights::duck1, lights::duck2}) stopBlink(light);
+    setLight(lights::duckDrop0);
+    raise(gates::duck0);
+    lightOff(lights::duck0);
+    setLight(lights::duckDrop1);
+    raise(gates::duck1);
+    lightOff(lights::duck1);
+    setLight(lights::duckDrop2);
+    raise(gates::duck2);
+    lightOff(lights::duck2);
+    effect(sounds::raiseDucks);
+    B(var::duckHit) = 0;
+    B(var::duckHit + 1) = 0;
+    B(var::duckHit + 2) = 0;
     endTimer();
   });
 
-  bind(0x16b6, [this] {
-    if (W(0x3318) != 0x18af) return;
-    if (W(0x05a9) != 0) {
-      W(0x05a9) = 0;
+  bind(routines::orbitTopLeft, [this] {  // the top of the left orbit: the right orbit made
+    if (W(var::lastTrigger) != routines::orbitTopRight) return;
+    if (W(var::timeoutSpringLoop) != 0) {
+      W(var::timeoutSpringLoop) = 0;
       return;
     }
-    if (B(0x00c9) == 0xff) return;
-    at2420();
-    at2bb7();
-    if (W(0x05ad) != 0) at26b0();
-    W(0x05ad) = 0x258;
-    W(0x05ab) = 0x12c;
-    ++B(0x00c8);
-    if (B(0x00c8) < 2) {
-      stopBlink(0x1a);
-      lightOn(0x1a);
-      blink(0x19, 0, 9);
-      award(0x0825);
-    } else if (B(0x00c8) == 2) {
-      stopBlink(0x19);
-      lightOn(0x19);
-      blink(0x13, 0, 9);
-      award(0x0841);
+    if (B(var::orbitRightBlinking) == 0xff) return;
+    incJackpot();
+    modeCountRamp();
+    if (W(var::timeoutPartyT) != 0) partyT();
+    W(var::timeoutPartyT) = 0x258;
+    W(var::timeoutPartyPr) = 0x12c;
+    ++B(var::orbitRightCycle);
+    if (B(var::orbitRightCycle) < 2) {
+      stopBlink(lights::orbit250k);
+      lightOn(lights::orbit250k);
+      blink(lights::orbit500k, 0, 9);
+      award(awards::orbit250k);
+    } else if (B(var::orbitRightCycle) == 2) {
+      stopBlink(lights::orbit500k);
+      lightOn(lights::orbit500k);
+      blink(lights::orbit750k, 0, 9);
+      award(awards::orbit500k);
     } else {
-      B(0x00c8) = 0;
-      stopBlink(0x13);
-      blink(0x13, 0, 2);
-      blink(0x19, 0, 2);
-      blink(0x1a, 0, 2);
-      award(0x085d);
-      addTimer(0x1880);
-      B(0x00c9) = 0xff;
+      B(var::orbitRightCycle) = 0;
+      stopBlink(lights::orbit750k);
+      blink(lights::orbit750k, 0, 2);
+      blink(lights::orbit500k, 0, 2);
+      blink(lights::orbit250k, 0, 2);
+      award(awards::orbit750k);
+      addTimer(timers::orbitRightUnblink);
+      B(var::orbitRightBlinking) = 0xff;
     }
-    if (B(0x0097) == 0xff) {
-      B(0x0097) = 0;
-      stopBlink(0x1d);
-      lightOff(0x1d);
+    if (B(var::rightOrbitMultiBonus) == 0xff) {
+      B(var::rightOrbitMultiBonus) = 0;
+      stopBlink(lights::rightOrbitMultiBonus);
+      lightOff(lights::rightOrbitMultiBonus);
       struct Step { u16 lit; u8 light; u16 prize, times; };
-      for (const Step s : {Step{0x35c0, 0x2f, 0x093e, 2}, {0x35c2, 0x31, 0x095a, 4}, {0x35c3, 0x32, 0x0976, 6}, {0x35c1, 0x30, 0x0992, 8}}) {
+      for (const Step s : {Step{var::lightStates + lights::bonusX2, lights::bonusX2, awards::orbitMb2, 2},
+                           {var::lightStates + lights::bonusX4, lights::bonusX4, awards::orbitMb4, 4},
+                           {var::lightStates + lights::bonusX6, lights::bonusX6, awards::orbitMb6, 6},
+                           {var::lightStates + lights::bonusX8, lights::bonusX8, awards::orbitMb8, 8}}) {
         if (B(s.lit) == 0xff) continue;
         setLight(s.light);
         award(s.prize);
-        W(0x33b1) = s.times;
-        B(0x01fc) += 2;
-        if (B(0x01fc) == 3) --B(0x01fc);
-        if (++B(0x2238) != 0x39) ++B(0x2238);
+        W(var::bonusTimes) = s.times;
+        B(var::bonusMultiplier) += 2;
+        if (B(var::bonusMultiplier) == 3) --B(var::bonusMultiplier);
+        if (++B(text::multiplier) != 0x39) ++B(text::multiplier);
         break;
       }
     }
-    if (B(0x0098) == 0xff) {
-      B(0x0098) = 0;
-      stopBlink(0x21);
-      lightOff(0x21);
-      award(0x09ae);
-      B(0x05b3) = 0xff;
+    if (B(var::rightOrbitHoldBonus) == 0xff) {
+      B(var::rightOrbitHoldBonus) = 0;
+      stopBlink(lights::rightOrbitHoldBonus);
+      lightOff(lights::rightOrbitHoldBonus);
+      award(awards::orbitHoldBonus);
+      B(var::holdBonus) = 0xff;
     }
-    if (B(0x0099) == 0xff) {
-      B(0x0099) = 0;
-      stopBlink(0x24);
-      lightOff(0x24);
-      award(0x09ca);
-      addScore(0x3399, 0x3399);
+    if (B(var::rightOrbitDoubleBonus) == 0xff) {
+      B(var::rightOrbitDoubleBonus) = 0;
+      stopBlink(lights::rightOrbitDoubleBonus);
+      lightOff(lights::rightOrbitDoubleBonus);
+      award(awards::orbitDoubleBonus);
+      addScore(var::bonus, var::bonus);
     }
   });
-  after(0x1880, 0x35e6, 0x78, [this] {
-    for (u8 light : {u8{0x13}, u8{0x19}, u8{0x1a}}) stopBlink(light);
-    blink(0x1a, 0, 9);
-    B(0x00c9) = 0;
+  after(timers::orbitRightUnblink, counters::orbitRightUnblink, 0x78, [this] {
+    for (u8 light : {lights::orbit750k, lights::orbit500k, lights::orbit250k}) stopBlink(light);
+    blink(lights::orbit250k, 0, 9);
+    B(var::orbitRightBlinking) = 0;
     endTimer();
   });
-  bind(0x18af, [this] {
-    if (W(0x3318) != 0x16b6 || B(0x00ca) == 0xff) return;
-    at2420();
-    at2bb7();
-    if (W(0x05ad) != 0) at26b0();
-    W(0x05ad) = 0x258;
-    if (B(0x3597) != 0xff) {
-      award(0x0a56);
-      blink(0x06, 0, 2);
-      addTimer(0x1900);
-    } else if (B(0x3599) != 0xff) {
-      award(0x0a72);
-      blink(0x08, 0, 2);
-      addTimer(0x1940);
+  bind(routines::orbitTopRight, [this] {  // the top of the right orbit: the left orbit made
+    if (W(var::lastTrigger) != routines::orbitTopLeft || B(var::madBlinking) == 0xff) return;
+    incJackpot();
+    modeCountRamp();
+    if (W(var::timeoutPartyT) != 0) partyT();
+    W(var::timeoutPartyT) = 0x258;
+    if (lightState(lights::mad0) != 0xff) {
+      award(awards::orbitMad0);
+      blink(lights::mad0, 0, 2);
+      addTimer(timers::madUnblink0);
+    } else if (lightState(lights::mad1) != 0xff) {
+      award(awards::orbitMad1);
+      blink(lights::mad1, 0, 2);
+      addTimer(timers::madUnblink1);
     } else {
-      B(0x3597) = 0;
-      B(0x3599) = 0;
-      blink(0x06, 0, 2);
-      blink(0x08, 0, 2);
-      blink(0x09, 0, 2);
-      addTimer(0x19a1);
-      B(0x00ca) = 0xff;
-      award(0x0a8e);
-      B(0x00db) = 0;
-      at12ea(at19c7());
+      lightState(lights::mad0) = 0;
+      lightState(lights::mad1) = 0;
+      blink(lights::mad0, 0, 2);
+      blink(lights::mad1, 0, 2);
+      blink(lights::mad2, 0, 2);
+      addTimer(timers::madAllUnblink);
+      B(var::madBlinking) = 0xff;
+      award(awards::orbitMad2);
+      B(var::crazyFromArcade) = 0;
+      checkCrazyAll(crazyLetter());
     }
   });
-  after(0x1900, 0x35e8, 0x0e, [this] {
-    stopBlink(0x06);
-    B(0x3597) = 0xff;
+  after(timers::madUnblink0, counters::madUnblink0, 0x0e, [this] {
+    stopBlink(lights::mad0);
+    lightState(lights::mad0) = 0xff;
     endTimer();
   });
-  after(0x1940, 0x35ea, 0x0e, [this] {
-    stopBlink(0x08);
-    B(0x3599) = 0xff;
+  after(timers::madUnblink1, counters::madUnblink1, 0x0e, [this] {
+    stopBlink(lights::mad1);
+    lightState(lights::mad1) = 0xff;
     endTimer();
   });
-  after(0x19a1, 0x35ec, 0x78, [this] {
-    for (u8 light : {u8{0x06}, u8{0x08}, u8{0x09}}) stopBlink(light);
-    B(0x00ca) = 0;
+  after(timers::madAllUnblink, counters::madAllUnblink, 0x78, [this] {
+    for (u8 light : {lights::mad0, lights::mad1, lights::mad2}) stopBlink(light);
+    B(var::madBlinking) = 0;
     endTimer();
   });
 
-  bind(0x1a0e, [this] {
-    B(0x33f8) = 0;
-    award(0x0b37);
-    at2420();
-    blink(0x0b, 0, 6);
-    B(0x009a) = 0xff;
-    addTimer(0x1aaf);
+  bind(routines::secret, [this] {  // the secret
+    B(var::scriptDone) = 0;
+    award(awards::secret);
+    incJackpot();
+    blink(lights::cycloneX5, 0, 6);
+    B(var::cycloneX5) = 0xff;
+    addTimer(timers::secretDrop);
     hole();
   });
-  bind(0x1a6c, [this] {
+  bind(routines::secretTilt, [this] {  // the same, tilted
     hole();
-    eject();
-    stopBlink(0x0b);
+    startDropZone();
+    stopBlink(lights::cycloneX5);
   });
-  bind(0x1aaf, [this] {
-    if (B(0x33f8) != 0xff) return;
-    addTimer(0x1ac7);
-    eject();
+  bind(timers::secretDrop, [this] {
+    if (B(var::scriptDone) != 0xff) return;
+    addTimer(timers::cycloneX5Blink);
+    startDropZone();
     endTimer();
   });
-  after(0x1ac7, 0x35ee, 0x1e0, [this] {
-    stopBlink(0x0b);
-    if (B(0x009a) != 0) {
-      blink(0x0b, 0, 2);
-      addTimer(0x1b04);
+  after(timers::cycloneX5Blink, counters::cycloneX5Blink, 0x1e0, [this] {
+    stopBlink(lights::cycloneX5);
+    if (B(var::cycloneX5) != 0) {
+      blink(lights::cycloneX5, 0, 2);
+      addTimer(timers::cycloneX5End);
     } else {
-      lightOff(0x0b);
+      lightOff(lights::cycloneX5);
     }
     endTimer();
   });
-  after(0x1b04, 0x35f0, 0x78, [this] {
-    at1b19();
+  after(timers::cycloneX5End, counters::cycloneX5End, 0x78, [this] {
+    cycloneX5End();
     endTimer();
   });
-  bind(0x1b29, [this] {
-    at2420();
-    at2bb7();
-    if (W(0x00aa) != 0) {
-      at2420();
-      W(0x00aa) = 0;
-      addScore(0x00dc, 0x016c);
-      addScore(0x45b6, 0x00dc);
-      award(0x0b70);
-      B(0x3398) = 0xff;
-      at1c82();
-    } else if (W(0x05ab) != 0) {
-      at1c82();
+  bind(routines::tunnel, [this] {  // the tunnel
+    incJackpot();
+    modeCountRamp();
+    if (W(var::timeoutSkillShot) != 0) {
+      incJackpot();
+      W(var::timeoutSkillShot) = 0;
+      addScore(var::tunnelSkillShot, points::k1000000);
+      addScore(var::score, var::tunnelSkillShot);
+      award(awards::tunnelSkillShot);
+      B(var::awardQuiet) = 0xff;
+      partyP();
+    } else if (W(var::timeoutPartyPr) != 0) {
+      partyP();
     }
-    if (B(0x359d) == 0xff) {
-      award(0x07d1);
-      W(0x00a8) = 0x5a0;
-    } else if (B(0x359f) == 0xff) {
-      award(0x07b5);
-      W(0x00a8) = 0x5a0;
-      stopBlink(0x0c);
-      setLight(0x0c);
-      blink(0x0a, 0, 8);
+    if (lightState(lights::tunnel3M) == 0xff) {
+      award(awards::tunnel5M);
+      W(var::timeoutTunnel) = 0x5a0;
+    } else if (lightState(lights::tunnel1M) == 0xff) {
+      award(awards::tunnel3M);
+      W(var::timeoutTunnel) = 0x5a0;
+      stopBlink(lights::tunnel3M);
+      setLight(lights::tunnel3M);
+      blink(lights::tunnel5M, 0, 8);
     } else {
-      award(0x0799);
-      W(0x00a8) = 0x2d0;
-      stopBlink(0x0e);
-      setLight(0x0e);
-      blink(0x0c, 0, 8);
+      award(awards::tunnel1M);
+      W(var::timeoutTunnel) = 0x2d0;
+      stopBlink(lights::tunnel1M);
+      setLight(lights::tunnel1M);
+      blink(lights::tunnel3M, 0, 8);
     }
-    W(0x00ac) = 0x82;
-    scrollUp();
-    addTimer(0x1c0f);
-    if (B(0x33e2) != 0xff) addTimer(0x1c36);
-    B(0x3398) = 0;
+    W(var::tunnelDelay) = 0x82;
+    startDropZoneScroll();
+    addTimer(timers::tunnelDropZoneStart);
+    if (B(var::modeRunning) != 0xff) addTimer(timers::tunnelFreeze);
+    B(var::awardQuiet) = 0;
   });
-  bind(0x1c0f, [this] {
-    if (B(0x33e2) != 0xff && !countTo(0x35f2, W(0x00ac))) return;
-    W(0x3383) = 0xffff;
-    eject();
+  bind(timers::tunnelDropZoneStart, [this] {
+    if (B(var::modeRunning) != 0xff && !countTo(counters::tunnelDropZoneStart, W(var::tunnelDelay))) return;
+    W(var::lookAt) = 0xffff;
+    startDropZone();
     endTimer();
   });
-  after(0x1c36, 0x35f4, 2, [this] {
+  after(timers::tunnelFreeze, counters::tunnelFreeze, 2, [this] {
     hole();
     endTimer();
   });
-  bind(0x1c9c, [this] {
+  bind(routines::tunnelTilt, [this] {  // the tunnel, tilted
     hole();
-    eject();
+    startDropZone();
   });
-  bind(0x1cda, [this] {
-    B(0x0093) += 0x15;
-    at2bb7();
-    if (B(at::tilted) == 0xff || B(0x008e) != 0xff) {
-      eject();
+  bind(routines::arcade, [this] {  // the arcade
+    B(var::frames) += 0x15;
+    modeCountRamp();
+    if (B(var::tilted) == 0xff || B(var::arcadeOpen) != 0xff) {
+      startDropZone();
       return;
     }
-    B(0x008e) = 0;
-    stopBlink(0x07);
-    stopBlink(0x37);
-    lightOff(0x07);
-    lightOff(0x37);
-    B(0x230b) = B(0x230a);
-    B(0x00d3) = 0;
-    W(0x3551) = 0x19;
-    if (!award(0x06f1)) {
-      B(0x00d3) = 0xff;
-      at1ddb();
-      B(0x230b) = B(0x230a);
+    B(var::arcadeOpen) = 0;
+    stopBlink(lights::arcade0);
+    stopBlink(lights::arcade1);
+    lightOff(lights::arcade0);
+    lightOff(lights::arcade1);
+    B(var::musicKept) = B(var::musicNext);
+    B(var::arcadeReady) = 0;
+    W(var::jingleTimeout) = 0x19;
+    if (!award(awards::arcade)) {
+      B(var::arcadeReady) = 0xff;
+      arcadePickReward();
+      B(var::musicKept) = B(var::musicNext);
     } else {
-      B(0x230a) = 0x3e;
+      B(var::musicNext) = 0x3e;
       // (amended: the arcade's jingle keeps its own priority while it plays)
-      if (!amended) B(0x3389) = 1;
-      B(0x338f) = 0;
-      B(0x338e) = 0;
-      addTimer(0x1da2);
+      if (!amended) B(var::musicPriority) = 1;
+      B(var::jingleEndedRules) = 0;
+      B(var::jingleEnded) = 0;
+      addTimer(timers::arcadePickReward);
     }
-    scrollUp();
+    startDropZoneScroll();
     hole();
   });
-  bind(0x1da2, [this] {
-    if (B(0x33e2) != 0xff && B(0x00d3) != 0xff) return;
-    if (B(at::tilted) == 0xff) {
-      eject();
+  bind(timers::arcadePickReward, [this] {
+    if (B(var::modeRunning) != 0xff && B(var::arcadeReady) != 0xff) return;
+    if (B(var::tilted) == 0xff) {
+      startDropZone();
       endTimer();
       return;
     }
     // (amended: after the arcade the music starts again from the beginning of the table's tune,
     // not from where it was when the ball went in)
-    if (amended) B(0x230b) = kb(0x34f7, 4);
-    B(0x230a) = B(0x230b);
+    if (amended) B(var::musicKept) = kb(at::musicOnPlaceInsn, 4);
+    B(var::musicNext) = B(var::musicKept);
     // (amended: the prize's jingle is not cut short by one of less weight: the priority
     // stays, and a jingle still to be repeated is)
     if (!amended) {
-      B(0x230d) = 1;
-      B(0x3389) = 0;
-    } else if (B(0x230d) == 0) {
-      B(0x230d) = 1;
+      B(var::musicRepeats) = 1;
+      B(var::musicPriority) = 0;
+    } else if (B(var::musicRepeats) == 0) {
+      B(var::musicRepeats) = 1;
     }
-    at1ddb();
+    arcadePickReward();
     endTimer();
   });
-  // what the hole gives, one of these by chance (the table at ds:0634)
+  // what the arcade gives, one of these by chance (the table at ds:0634)
   auto prize = [this](u16 record, u16 show, u16 hold) {
-    if (!award(record)) return at1efb();
-    B(0x230a) = B(0x230b);
-    if (!amended) B(0x3389) = 0;  // (amended: a prize's jingle keeps its priority)
-    W(0x00d5) = show;
-    W(0x00d8) = hold;
-    B(0x00d7) = 0;
-    addTimer(0x1f32);
+    if (!award(record)) return arcadeNotShown();
+    B(var::musicNext) = B(var::musicKept);
+    if (!amended) B(var::musicPriority) = 0;  // (amended: a prize's jingle keeps its priority)
+    W(var::arcadeTimeoutSoft) = show;
+    W(var::arcadeTimeoutHard) = hold;
+    B(var::arcadeJingleDone) = 0;
+    addTimer(timers::arcadeDropZoneStart);
     endTimer();
   };
-  bind(0x1dfa, [this] {
-    setLight(0x27);
-    if (!award(0x0640)) return at1efb();
-    B(0x230a) = B(0x230b);
-    if (!amended) B(0x3389) = 0;  // (amended: a prize's jingle keeps its priority)
-    W(0x05af) = 0xa0;
-    addTimer(0x1104);
+  bind(code::arcadeSideExtraBall, [this] {
+    setLight(lights::sideExtraBall);
+    if (!award(awards::arcadeSideExtraBall)) return arcadeNotShown();
+    B(var::musicNext) = B(var::musicKept);
+    if (!amended) B(var::musicPriority) = 0;  // (amended: a prize's jingle keeps its priority)
+    W(var::dropZoneDelay) = 0xa0;
+    addTimer(timers::dropZoneStart);
     endTimer();
   });
-  bind(0x1e27, [this] {
-    B(0x00db) = 0xff;
-    at12ea(at19c7());
-    if (B(0x00da) == 0) return at1efb();
-    B(0x230a) = B(0x230b);
-    if (!amended) B(0x3389) = 0;  // (amended: a prize's jingle keeps its priority)
-    W(0x00d5) = 0x8c;
-    W(0x00d8) = 0xb4;
-    B(0x00d7) = 0;
-    addTimer(0x1f32);
+  bind(code::arcadeCrazy, [this] {
+    B(var::crazyFromArcade) = 0xff;
+    checkCrazyAll(crazyLetter());
+    if (B(var::crazyShown) == 0) return arcadeNotShown();
+    B(var::musicNext) = B(var::musicKept);
+    if (!amended) B(var::musicPriority) = 0;  // (amended: a prize's jingle keeps its priority)
+    W(var::arcadeTimeoutSoft) = 0x8c;
+    W(var::arcadeTimeoutHard) = 0xb4;
+    B(var::arcadeJingleDone) = 0;
+    addTimer(timers::arcadeDropZoneStart);
     endTimer();
   });
-  bind(0x1e62, [=] { prize(0x0679, 0x78, 0x96); });
-  bind(0x1e95, [=] { prize(0x065d, 0x6e, 0x8c); });
-  bind(0x1ec8, [=] { prize(0x0695, 0x2d, 0x46); });
-  bind(0x1f0a, [this] {
-    if (award(0x06b1)) {
-      B(0x230a) = B(0x230b);
-      if (!amended) B(0x3389) = 0;
+  bind(code::arcade1M, [=] { prize(awards::arcade1M, 0x78, 0x96); });
+  bind(code::arcade5M, [=] { prize(awards::arcade5M, 0x6e, 0x8c); });
+  bind(code::arcade500k, [=] { prize(awards::arcade500k, 0x2d, 0x46); });
+  bind(code::arcadeNoScore, [this] {
+    if (award(awards::arcadeNoScore)) {
+      B(var::musicNext) = B(var::musicKept);
+      if (!amended) B(var::musicPriority) = 0;
     }
-    W(0x05af) = 0x2d;
-    addTimer(0x1104);
+    W(var::dropZoneDelay) = 0x2d;
+    addTimer(timers::dropZoneStart);
     endTimer();
   });
-  bind(0x1f32, [this] {
-    bool done = --W(0x00d8) == 0;
+  bind(timers::arcadeDropZoneStart, [this] {
+    bool done = --W(var::arcadeTimeoutHard) == 0;
     if (amended) {
       // The original lets the ball go when the prize's jingle is over and its time on the
       // display is up. Amended: when its time is up, once the jingle has been heard to play;
       // a long jingle no longer keeps the ball back.
-      if (!done && B(0x33e2) != 0xff) {
-        if (W(0x00d5) != 0) --W(0x00d5);
-        if (B(0x230d) == 0 && B(0x00d7) != 0xff) return;
-        B(0x00d7) = 0xff;
-        if (W(0x00d5) != 0) return;
+      if (!done && B(var::modeRunning) != 0xff) {
+        if (W(var::arcadeTimeoutSoft) != 0) --W(var::arcadeTimeoutSoft);
+        if (B(var::musicRepeats) == 0 && B(var::arcadeJingleDone) != 0xff) return;
+        B(var::arcadeJingleDone) = 0xff;
+        if (W(var::arcadeTimeoutSoft) != 0) return;
       }
     } else if (!done) {
-      if (W(0x00d5) != 0) --W(0x00d5);
-      if (B(0x00d7) != 0xff) {
-        if (B(0x33e2) == 0xff) done = true;
-        else if (B(0x338f) != 0xff) return;
+      if (W(var::arcadeTimeoutSoft) != 0) --W(var::arcadeTimeoutSoft);
+      if (B(var::arcadeJingleDone) != 0xff) {
+        if (B(var::modeRunning) == 0xff) done = true;
+        else if (B(var::jingleEndedRules) != 0xff) return;
       }
       if (!done) {
-        B(0x00d7) = 0xff;
-        if (W(0x00d5) != 0) return;
+        B(var::arcadeJingleDone) = 0xff;
+        if (W(var::arcadeTimeoutSoft) != 0) return;
       }
     }
-    B(0x338f) = 0;
-    W(0x00d5) = 0xffff;
-    W(0x00d8) = 0x0a;
-    eject();
+    B(var::jingleEndedRules) = 0;
+    W(var::arcadeTimeoutSoft) = 0xffff;
+    W(var::arcadeTimeoutHard) = 0x0a;
+    startDropZone();
     endTimer();
   });
 
-  bind(0x1f92, [this] {
-    if (B(0x0095) == 0xff) return;
-    B(0x0095) = 0xff;
-    addScore(0x45b6, 0x01c0);
+  bind(routines::rampSnack, [this] {  // the snack ramp
+    if (B(var::inSnack) == 0xff) return;
+    B(var::inSnack) = 0xff;
+    addScore(var::score, points::k50000);
     scored();
-    addBonus(0x01cc);
-    at2bb7();
-    if (B(0x0089) == 0xff) {
-      award(0x08e9);
-      at2420();
-      ++B(0x0096);
-    } else if (B(0x0088) == 0xff) {
-      award(0x08cd);
-      at2420();
-    } else if (B(0x0087) == 0xff) {
-      award(0x08b1);
-      at2420();
+    addBonus(points::k5000);
+    modeCountRamp();
+    if (B(var::snackLit + 2) == 0xff) {
+      award(awards::snack2);
+      incJackpot();
+      ++B(var::popcorns);
+    } else if (B(var::snackLit + 1) == 0xff) {
+      award(awards::snack1);
+      incJackpot();
+    } else if (B(var::snackLit) == 0xff) {
+      award(awards::snack0);
+      incJackpot();
     } else {
-      award(0x0809);
+      award(awards::snackNope);
     }
-    for (u8 light : {u8{0x17}, u8{0x11}, u8{0x14}}) {
+    for (u8 light : {lights::snack0, lights::snack1, lights::snack2}) {
       stopBlink(light);
       lightOff(light);
     }
-    if (B(0x0089) == 0xff) {
-      if (B(0x35bc) != 0xff) {
-        setLight(0x2b);
-        award(0x0729);
-        fiveLit();
+    if (B(var::snackLit + 2) == 0xff) {
+      if (lightState(lights::partyA) != 0xff) {
+        setLight(lights::partyA);
+        award(awards::partyA);
+        checkPartyAll();
       }
-      if (B(0x0096) <= 1) {
-        if (B(0x0098) != 0xff) {
-          B(0x0098) = 0xff;
-          u8 start = static_cast<u8>(B(0x009b) + 0x0c);
+      if (B(var::popcorns) <= 1) {
+        if (B(var::rightOrbitHoldBonus) != 0xff) {
+          B(var::rightOrbitHoldBonus) = 0xff;
+          u8 start = static_cast<u8>(B(var::lightPhaseOrbit) + 0x0c);
           if (start >= 0x18) start = static_cast<u8>(start - 0x18);
-          blink(0x21, start, 0x0c);
+          blink(lights::rightOrbitHoldBonus, start, 0x0c);
         }
-      } else if (B(0x0099) != 0xff) {
-        B(0x0099) = 0xff;
-        addTimer(0x20e1);
-        blink(0x24, B(0x009b), 0x0c);
+      } else if (B(var::rightOrbitDoubleBonus) != 0xff) {
+        B(var::rightOrbitDoubleBonus) = 0xff;
+        addTimer(timers::doubleBonusBlink);
+        blink(lights::rightOrbitDoubleBonus, B(var::lightPhaseOrbit), 0x0c);
       }
     }
-    B(0x0087) = 0;
-    B(0x0088) = 0;
-    B(0x0089) = 0;
-    addTimer(0x2137);
+    B(var::snackLit) = 0;
+    B(var::snackLit + 1) = 0;
+    B(var::snackLit + 2) = 0;
+    addTimer(timers::snacksWait);
   });
-  after(0x20e1, 0x35f6, 0x1e0, [this] {
-    if (B(0x0099) == 0xff) {
-      stopBlink(0x24);
-      blink(0x24, 0, 2);
-      addTimer(0x2111);
+  after(timers::doubleBonusBlink, counters::doubleBonusBlink, 0x1e0, [this] {
+    if (B(var::rightOrbitDoubleBonus) == 0xff) {
+      stopBlink(lights::rightOrbitDoubleBonus);
+      blink(lights::rightOrbitDoubleBonus, 0, 2);
+      addTimer(timers::doubleBonusEnd);
     }
     endTimer();
   });
-  after(0x2111, 0x35f8, 0x78, [this] {
-    if (B(0x0099) == 0xff) {
-      stopBlink(0x24);
-      B(0x0099) = 0;
+  after(timers::doubleBonusEnd, counters::doubleBonusEnd, 0x78, [this] {
+    if (B(var::rightOrbitDoubleBonus) == 0xff) {
+      stopBlink(lights::rightOrbitDoubleBonus);
+      B(var::rightOrbitDoubleBonus) = 0;
     }
     endTimer();
   });
   auto held = [this] {  // the ball kept at the top of the left ramp
-    B(at::ballHidden) = 0xff;
-    placeBall(0x03, 0xfd);
-    B(at::layer) = 0xff;
+    B(var::ballHidden) = 0xff;
+    placeBall(spots::snacks);
+    B(var::layer) = 0xff;
   };
-  bind(0x2137, [=, this] {
+  bind(timers::snacksWait, [=, this] {
     held();
-    if (!countTo(0x35fa, 0x28)) return;
-    addTimerNow(0x218f);
+    if (!countTo(counters::snacksWait, 0x28)) return;
+    addTimerNow(timers::snacksRelease);
     endTimer();
   });
-  bind(0x218f, [=, this] {
+  bind(timers::snacksRelease, [=, this] {
     held();
-    if (B(0x33e2) != 0xff && !countTo(0x35fc, 0x5a)) return;
-    effect(0x0c41);
+    if (B(var::modeRunning) != 0xff && !countTo(counters::snacksRelease, 0x5a)) return;
+    effect(sounds::snacksRelease);
     held();
-    B(at::ballHidden) = 0;
-    W(at::ballVy) = 0xf63c;
-    addTimer(0x2246);
+    B(var::ballHidden) = 0;
+    W(var::ballVy) = 0xf63c;
+    addTimer(timers::snacksFinish);
     endTimer();
   });
-  after(0x2246, 0x35fe, 0x3c, [this] {
-    B(0x0095) = 0;
+  after(timers::snacksFinish, counters::snacksFinish, 0x3c, [this] {
+    B(var::inSnack) = 0;
     endTimer();
   });
-  bind(0x225d, [this] { W(0x05a9) = 0; });
-  bind(0x2264, [this] {  // the ball came back down the lane: it is given again
-    if (W(0x3318) != 0x25c2) return;
-    B(0x33e3) = 0;
-    music(0x0c72);
-    B(0x230a) = 1;
-    startScript(0x148d);
-    B(0x33e0) = 0;
-    B(0x00d0) = 0;
-    B(0x00d1) = 0;
+  bind(routines::orbitEntryRight, [this] { W(var::timeoutSpringLoop) = 0; });  // the way into the right orbit
+  bind(routines::enter, [this] {  // the ball came back down the lane: it is given again
+    if (W(var::lastTrigger) != routines::plungerGo) return;
+    B(var::playersMayJoin) = 0;
+    music(tunes::main);
+    B(var::musicNext) = 1;
+    startScript(scripts::enter);
+    B(var::ballUntouched) = 0;
+    B(var::specialPlungerEvent) = 0;
+    B(var::partyOn) = 0;
   });
-  bind(0x2299, [this] {
-    if (B(0x00d4) == 0xff) return;
-    B(0x00d4) = 0xff;
-    placeBall(0x101, 0x136);
-    B(at::ballHidden) = 0xff;
-    CB(0x2298) = 0;
-    at2bb7();
-    if (at232a()) ++CB(0x2298);
-    if (at2364()) ++CB(0x2298);
-    if (at23a7()) ++CB(0x2298);
-    if (CB(0x2298) == 0) {
-      award(0x07ed);
-      W(0x00a6) = 0x55;
+  bind(routines::demon, [this] {  // the demon
+    if (B(var::inDemon) == 0xff) return;
+    B(var::inDemon) = 0xff;
+    placeBall(spots::demon);
+    B(var::ballHidden) = 0xff;
+    CB(cvar::demonPrizes) = 0;
+    modeCountRamp();
+    if (demon5M()) ++CB(cvar::demonPrizes);
+    if (demonExtraBall()) ++CB(cvar::demonPrizes);
+    if (demonJackpot()) ++CB(cvar::demonPrizes);
+    if (CB(cvar::demonPrizes) == 0) {
+      award(awards::demon250k);
+      W(var::demonTimeout) = 0x55;
     }
-    addTimer(0x242a);
+    addTimer(timers::demonBlink);
   });
-  bind(0x242a, [this] {
-    if (!countTo(0x3600, W(0x00a6))) return;
-    blink(0x15, 0, 7);
-    addTimer(0x244c);
+  bind(timers::demonBlink, [this] {
+    if (!countTo(counters::demonBlink, W(var::demonTimeout))) return;
+    blink(lights::demonHead, 0, 7);
+    addTimer(timers::demonRelease);
     endTimer();
   });
-  after(0x244c, 0x3602, 0x1b, [this] {
-    stopBlink(0x15);
-    effect(0x0c35);
-    B(at::ballHidden) = 0;
-    placeBall(0x101, 0x136);
-    W(at::ballVy) = 0x627;
-    W(at::ballVx) = 0xfdc1;
-    B(0x00d4) = 0;
+  after(timers::demonRelease, counters::demonRelease, 0x1b, [this] {
+    stopBlink(lights::demonHead);
+    effect(sounds::issueBall);
+    B(var::ballHidden) = 0;
+    placeBall(spots::demon);
+    W(var::ballVy) = 0x627;
+    W(var::ballVx) = 0xfdc1;
+    B(var::inDemon) = 0;
     endTimer();
   });
-  for (u16 at : {u16{0x24bc}, u16{0x24d7}})
+  for (u16 at : {routines::laneInnerOther, routines::laneInner})  // the inlanes
     bind(at, [this] {
-      award(0x0b8c);
-      effect(0x0c49);
+      award(awards::rollInner);
+      effect(sounds::inlane);
     });
-  for (u16 at : {u16{0x24f2}, u16{0x2577}})
+  for (u16 at : {routines::laneOuterOther, routines::laneOuter})  // the outlanes
     bind(at, [this] {
-      if (B(0x35b8) == 0xff) return at2540();
-      effect(0x0c45);
-      addScore(0x45b6, 0x01b4);
+      if (lightState(lights::sideExtraBall) == 0xff) return sideExtraBall();
+      effect(sounds::rollover);
+      addScore(var::score, points::k50030);
       scored();
     });
-  after(0x2560, 0x3604, 0x258, [this] {
-    B(0x00d2) = 0;
+  after(timers::sideExtraBallFinish, counters::sideExtraBallFinish, 0x258, [this] {
+    B(var::blockDrain) = 0;
     endTimer();
   });
-  bind(0x25c2, [this] {
-    W(0x00aa) = 0x12c;
-    B(0x338a) = 0;
-    W(0x05a9) = 0x78;
+  bind(routines::plungerGo, [this] {  // the ball leaves the plunger lane
+    W(var::timeoutSkillShot) = 0x12c;
+    B(var::ballOnPlunger) = 0;
+    W(var::timeoutSpringLoop) = 0x78;
   });
-  bind(0x25d5, [this] { B(0x338a) = 0xff; });
-  bind(0x25dc, [this] {
-    if (W(0x3318) != 0x26ca) return;
-    at2bb7();
-    patchMask(0x46b4, 0x0266, 0x1356, 2, 0x12);
-    if (W(0x05ad) != 0) at26b0();
-    W(0x05ad) = 0x258;
-    ++W(0x009c);
-    if (W(0x009c) >= 3) {
-      award(0x0ae3);
-      blink(0x16, 0, 2);
-      blink(0x0d, 0, 2);
-      blink(0x0f, 0, 2);
-      addTimer(0x268f);
-      W(0x009c) = 0;
-      if (B(0x0097) != 0xff && B(0x35c1) != 0xff) {
-        B(0x0097) = 0xff;
-        blink(0x1d, B(0x009b), 0x0c);
-        award(0x0921);
+  bind(routines::plungerBottom, [this] { B(var::ballOnPlunger) = 0xff; });
+  bind(routines::skyrideTop, [this] {  // the top of the skyride
+    if (W(var::lastTrigger) != routines::skyrideRamp) return;
+    modeCountRamp();
+    raise(gates::skyride);
+    if (W(var::timeoutPartyT) != 0) partyT();
+    W(var::timeoutPartyT) = 0x258;
+    ++W(var::skyride);
+    if (W(var::skyride) >= 3) {
+      award(awards::skyride2);
+      blink(lights::skyride0, 0, 2);
+      blink(lights::skyride1, 0, 2);
+      blink(lights::skyride2, 0, 2);
+      addTimer(timers::skyrideUnblink);
+      W(var::skyride) = 0;
+      if (B(var::rightOrbitMultiBonus) != 0xff && lightState(lights::bonusX8) != 0xff) {
+        B(var::rightOrbitMultiBonus) = 0xff;
+        blink(lights::rightOrbitMultiBonus, B(var::lightPhaseOrbit), 0x0c);
+        award(awards::skyrideLitMb);
       }
-    } else if (W(0x009c) == 1) {
-      lightOn(0x16);
-      award(0x0aab);
+    } else if (W(var::skyride) == 1) {
+      lightOn(lights::skyride0);
+      award(awards::skyride0);
     } else {
-      award(0x0ac7);
-      lightOn(0x0d);
+      award(awards::skyride1);
+      lightOn(lights::skyride1);
     }
   });
-  after(0x268f, 0x3606, 0x78, [this] {
-    for (u8 light : {u8{0x16}, u8{0x0d}, u8{0x0f}}) stopBlink(light);
+  after(timers::skyrideUnblink, counters::skyrideUnblink, 0x78, [this] {
+    for (u8 light : {lights::skyride0, lights::skyride1, lights::skyride2}) stopBlink(light);
     endTimer();
   });
-  bind(0x26ca, [this] { patchMask(0x46b4, 0x0266, 0x1332, 2, 0x12); });
+  bind(routines::skyrideRamp, [this] { drop(gates::skyride); });  // up the skyride
 
-  // the four lanes
+  // the four lanes at the top
   struct Lane { u16 roll, lit; u8 light; u16 timer, counter; };
-  for (const Lane l : {Lane{0x26ce, 0x3592, 1, 0x270f, 0x3608}, {0x272b, 0x3593, 2, 0x276c, 0x360a}, {0x2788, 0x3595, 4, 0x27c9, 0x360c},
-                       {0x27e5, 0x3596, 5, 0x2826, 0x360e}}) {
+  for (const Lane l : {Lane{routines::skyridePuke0, var::lightStates + lights::puke0, lights::puke0, timers::pukeUnblink0, counters::pukeUnblink0},
+                       {routines::skyridePuke3, var::lightStates + lights::puke3, lights::puke3, timers::pukeUnblink3, counters::pukeUnblink3},
+                       {routines::skyridePuke1, var::lightStates + lights::puke1, lights::puke1, timers::pukeUnblink1, counters::pukeUnblink1},
+                       {routines::skyridePuke2, var::lightStates + lights::puke2, lights::puke2, timers::pukeUnblink2, counters::pukeUnblink2}}) {
     bind(l.roll, [this, l] {
-      effect(0x0c45);
+      effect(sounds::rollover);
       if (B(l.lit) != 0) return;
       B(l.lit) = 0xff;
-      if (laneScore()) return at28f5();
-      B(0x00cf) = 0xff;
+      if (pukeScore()) return pukeAll();
+      B(var::flipperLockPuke) = 0xff;
       blink(l.light, 0, 2);
       addTimer(l.timer);
     });
     after(l.timer, l.counter, 0x0d, [this, l] {
       stopBlink(l.light);
-      B(0x00cf) = 0;
+      B(var::flipperLockPuke) = 0;
       endTimer();
     });
   }
-  after(0x28bb, 0x3610, 0x64, [this] {
-    for (u8 light : {u8{1}, u8{2}, u8{4}, u8{5}}) stopBlink(light);
-    for (u8 light : {u8{1}, u8{2}, u8{4}, u8{5}}) clearLight(light);
+  after(timers::pukeUnblinkAll, counters::pukeUnblinkAll, 0x64, [this] {
+    for (u8 light : {lights::puke0, lights::puke3, lights::puke1, lights::puke2}) stopBlink(light);
+    for (u8 light : {lights::puke0, lights::puke3, lights::puke1, lights::puke2}) clearLight(light);
     endTimer();
   });
-  bind(0x29e7, [] {});
-  bind(0x29e8, [] {});
-  bind(0x29e9, [this] {
-    at2bb7();
-    if (W(0x00aa) != 0) {
-      at2420();
-      at2420();
-      if (!amended) award(0x0b54);  // (the original gives the skill shot's award twice; amended: once)
-      addScore(0x00e8, 0x016c);
-      addScore(0x45b6, 0x00e8);
-      award(0x0b54);
-      B(0x3398) = 0xff;
-      at2a94();
-    } else if (W(0x05ab) != 0) {
-      at2a94();
+  bind(routines::dummy0, [] {});
+  bind(routines::dummy1, [] {});
+  bind(routines::rampCyclone, [this] {  // the cyclone ramp
+    modeCountRamp();
+    if (W(var::timeoutSkillShot) != 0) {
+      incJackpot();
+      incJackpot();
+      if (!amended) award(awards::cycloneSkillShot);  // (the original gives the skill shot's award twice; amended: once)
+      addScore(var::cycloneSkillShot, points::k1000000);
+      addScore(var::score, var::cycloneSkillShot);
+      award(awards::cycloneSkillShot);
+      B(var::awardQuiet) = 0xff;
+      partyR();
+    } else if (W(var::timeoutPartyPr) != 0) {
+      partyR();
     }
-    if (B(0x009a) == 0xff) {
-      W(0x00ae) += 5;
-      addScore(0x00b0, 0x013c);
-      addScore(0x00bc, 0x0154);
-      award(0x0b1b);
-      at1b19();
-      at1b19();
+    if (B(var::cycloneX5) == 0xff) {
+      W(var::cyclones) += 5;
+      addScore(var::cyclonesDigits, points::k5);
+      addScore(var::cycloneBonus, points::k500000);
+      award(awards::cycloneX5);
+      cycloneX5End();
+      cycloneX5End();
     } else {
       do {
-        ++W(0x00ae);
-        addScore(0x00b0, 0x0130);
-        addScore(0x00bc, 0x0160);
-      } while (W(0x00ae) == 1);
-      award(0x0aff);
-      at1b19();
+        ++W(var::cyclones);
+        addScore(var::cyclonesDigits, points::k1);
+        addScore(var::cycloneBonus, points::k100000);
+      } while (W(var::cyclones) == 1);
+      award(awards::cyclone);
+      cycloneX5End();
     }
-    B(0x3398) = 0;
+    B(var::awardQuiet) = 0;
   });
-  after(0x2f40, 0x3612, 0x190, [this] {
-    at1287();
+  after(timers::happyHour, counters::happyHour, 0x190, [this] {
+    happyHour();
     endTimer();
   });
-  after(0x2f55, 0x3614, 0x190, [this] {
-    at1302();
+  after(timers::megaLaugh, counters::megaLaugh, 0x190, [this] {
+    megaLaugh();
     endTimer();
   });
 }
@@ -992,99 +1010,99 @@ void PartyLand::bindRules() {
 void PartyLand::bindSteps() {
   auto arg = [this](u16 n) { return nativeW(static_cast<u16>(bx + n)); };
   auto wait1 = [this] {
-    W(0x33e9) = 1;
-    W(0x33e7) = 0x5285;
+    W(var::taskState) = 1;
+    W(var::task) = code::waitTask;
   };
-  bind(0x2bf4, [=, this] {
-    B(0x00d0) = 0xff;
-    B(0x1cf9) = static_cast<u8>(B(0x371a) + 0x37);
+  bind(routines::setupPartyOn, [=, this] {  // PARTY ON: the ball is served again
+    B(var::specialPlungerEvent) = 0xff;
+    B(text::playerDigit1) = static_cast<u8>(B(var::player) + 0x37);
     wait1();
     nextStep(4);
   });
-  bind(0x2c14, [=, this] {
-    B(0x1d91) = static_cast<u8>(B(0x371a) + 0x37);
+  bind(routines::setupShootAgain, [=, this] {  // shoot again
+    B(text::playerDigit2) = static_cast<u8>(B(var::player) + 0x37);
     wait1();
     nextStep(4);
   });
-  bind(0x52cc, [] {});
-  bind(0x2c2f, [=, this] {
-    B(0x00d0) = 0xff;
-    W(0x33e9) = 1;
-    W(0x33e7) = 0x52cc;
+  bind(code::haltTask, [] {});
+  bind(routines::setSpecialPlungerEvent, [=, this] {
+    B(var::specialPlungerEvent) = 0xff;
+    W(var::taskState) = 1;
+    W(var::task) = code::haltTask;
     nextStep(4);
   });
-  bind(0x2c43, [=, this] {
+  bind(routines::noop, [=, this] {
     wait1();
     nextStep(4);
   });
-  bind(0x2c52, [=, this] {
-    B(0x00d3) = 0xff;
+  bind(routines::arcadeReady, [=, this] {  // the arcade's script has got to its prize
+    B(var::arcadeReady) = 0xff;
     wait1();
     nextStep(4);
   });
-  bind(0x2c66, [=, this] {
-    W(0x33e7) = 0x2c75;
-    W(0x33e9) = 0x2c;
+  bind(routines::waitWhileGameStarting, [=, this] {  // wait while the game is starting
+    W(var::task) = code::gameStartingTask;
+    W(var::taskState) = 0x2c;
     nextStep(4);
   });
-  bind(0x2c75, [this] { si = B(0x33e3) == 0xff ? 0x22 : 0; });
-  bind(0x2c88, [=, this] {  // go elsewhere if a score is nought
+  bind(code::gameStartingTask, [this] { si = B(var::playersMayJoin) == 0xff ? 0x22 : 0; });
+  bind(routines::jccScoreZero, [=, this] {  // go elsewhere if a score is nought
     bool nought = true;
     for (u16 i = 0; i < 12; ++i)
       if (nativeB(static_cast<u16>(arg(2) + i)) != 0) nought = false;
     bx = nought ? arg(4) : static_cast<u16>(bx + 6);
     if (nativeW(bx) == 0) {
-      W(0x33e5) = 0;
+      W(var::nextStep) = 0;
       return;
     }
-    W(0x33e5) = bx;
+    W(var::nextStep) = bx;
     call(nativeW(bx));
   });
-  bind(0x2ccd, [=, this] {
-    if (B(0x01fc) > 1) {
+  bind(routines::jccNoBonusMult, [=, this] {  // go elsewhere if there is no multiplier
+    if (B(var::bonusMultiplier) > 1) {
       wait1();
       nextStep(4);
       return;
     }
     bx = arg(2);
-    W(0x33e5) = bx;
+    W(var::nextStep) = bx;
     call(nativeW(bx));
   });
-  bind(0x2cfd, [=, this] {  // the bonus times its multiplier
-    for (u16 i = 0; i < 12; ++i) B(0x01fd, i) = B(0x3399, i);
-    for (u8 n = static_cast<u8>(B(0x01fc) - 1); n > 0; --n) addScore(0x3399, 0x01fd);
-    B(0x1db9) = static_cast<u8>(B(0x01fc) + 0x37);
+  bind(routines::multiplyBonus, [=, this] {  // the bonus times its multiplier
+    for (u16 i = 0; i < 12; ++i) B(var::bonusOnce, i) = B(var::bonus, i);
+    for (u8 n = static_cast<u8>(B(var::bonusMultiplier) - 1); n > 0; --n) addScore(var::bonus, var::bonusOnce);
+    B(text::bonusX) = static_cast<u8>(B(var::bonusMultiplier) + 0x37);
     wait1();
     nextStep(4);
   });
-  bind(0x2d3f, [=, this] {
+  bind(routines::accBonusModeRamp, [=, this] {  // MEGA LAUGH's score into the bonus
     wait1();
-    addScore(0x3399, 0x0100);
+    addScore(var::bonus, var::modeRampScore);
     nextStep(2);
   });
-  bind(0x2d69, [=, this] {
+  bind(routines::accBonusModeHit, [=, this] {  // HAPPY HOUR's
     wait1();
-    addScore(0x3399, 0x00f4);
+    addScore(var::bonus, var::modeHitScore);
     nextStep(2);
   });
-  bind(0x2d93, [=, this] {
-    for (u16 i = 0; i < 12; ++i) B(0x00bc, i) = 0;
+  bind(routines::accBonusCyclones, [=, this] {  // the cyclones'
+    for (u16 i = 0; i < 12; ++i) B(var::cycloneBonus, i) = 0;
     wait1();
-    u32 times = W(0x00ae);
+    u32 times = W(var::cyclones);
     if (times == 0) times = 0x10000;  // as the original's loop does with a count of nought
-    for (u32 i = 0; i < times; ++i) addScore(0x00bc, 0x0160);
-    addScore(0x3399, 0x00bc);
+    for (u32 i = 0; i < times; ++i) addScore(var::cycloneBonus, points::k100000);
+    addScore(var::bonus, var::cycloneBonus);
     nextStep(2);
   });
-  bind(0x2f6a, [=, this] {
-    B(0x33f8) = 0xff;
+  bind(routines::secretDropStep, [=, this] {  // the secret's script lets the ball go on
+    B(var::scriptDone) = 0xff;
     wait1();
     nextStep(4);
   });
-  bind(0x2f7f, [=, this] {
+  bind(routines::extraBall, [=, this] {  // an extra ball
     wait1();
-    ++B(0x00ce);
-    setLight(0x33);
+    ++B(var::extraBalls);
+    setLight(lights::extraBall);
     nextStep(4);
   });
 }
