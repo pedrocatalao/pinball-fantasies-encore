@@ -15,6 +15,28 @@
 
 namespace oracle {
 
+/// The program's code segment, as its listing has it (relative to where it is loaded).
+constexpr u16 kCodeSegment = 0x10;
+
+/// The interrupts the machine answers, by number, and the keyboard's.
+namespace vec {
+constexpr u8 keyboard = 0x09, video = 0x10, terminate = 0x20, dos = 0x21, mouse = 0x33;
+constexpr u8 launcher = 0x65, soundDriver = 0x66;  ///< PINBALL.EXE's services, and the sound driver's
+}  // namespace vec
+
+/// Keys as the keyboard says them: the code of a key going down, and with `released` set,
+/// going up.
+namespace scan {
+constexpr u8 released = 0x80;
+constexpr u8 extended = 0xe0;  ///< comes before the code of a key the first keyboards had not
+constexpr u8 enter = 0x1c, enterUp = 0x9c;
+constexpr u8 leftShift = 0x2a, leftShiftUp = 0xaa;  ///< the left flipper
+constexpr u8 rightShift = 0x36, rightShiftUp = 0xb6;  ///< the right flipper
+constexpr u8 space = 0x39, spaceUp = 0xb9;  ///< a nudge
+constexpr u8 f1 = 0x3b;
+constexpr u8 down = 0x50, downUp = 0xd0;  ///< the plunger (after `extended`, the arrow's)
+}  // namespace scan
+
 class Machine : public Bus {
  public:
   /// The options as PINBALL.CFG holds them: balls (0 three, 1 five), angle, scrolling,
@@ -48,7 +70,8 @@ class Machine : public Bus {
   Cpu cpu{*this};
   Vga vga;
   bool log = false;            ///< every service call, to stderr
-  u32 watchWrite = 0xffffffff; ///< a place in memory: who writes there is said on stderr
+  static constexpr u32 kNowhere = 0xffffffff;
+  u32 watchWrite = kNowhere;   ///< a place in memory: who writes there is said on stderr
   std::uint64_t loopBudget = 20000;  ///< instructions of the program's own loop per frame
   u32 frames = 0;
 
@@ -60,6 +83,9 @@ class Machine : public Bus {
   bool interrupt(u8 number) override;
 
  private:
+  /// What the sound driver's next answer is when nothing has set one.
+  static constexpr u8 kNoStatus = 0xff;
+
   struct Callback {
     u16 scanline = 0;
     u8 priority = 0;
@@ -97,8 +123,8 @@ class Machine : public Bus {
   bool haveFrameCallback_ = false;
   Callback frameCallback_;
   std::vector<Callback> lineCallbacks_;  ///< sorted by scanline
-  u16 musicSeg_ = 0, musicOff_ = 0;      ///< the callback given by function 0x13
-  u8 driverStatus_ = 0xff;               ///< what the next call returns in AL, once
+  u16 musicSeg_ = 0, musicOff_ = 0;      ///< the callback given by int66::setMusicCallback
+  u8 driverStatus_ = kNoStatus;          ///< what the next call returns in AL, once
   u32 ticks_ = 0;
   bool polling_ = false;
   u32 loopAt_ = 0;

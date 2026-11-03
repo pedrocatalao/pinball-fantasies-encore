@@ -28,6 +28,7 @@
 
 #include "Machine.h"
 #include "core/File.h"
+#include "engine/Values.h"
 #include "engine/table/Engine.h"
 #include "engine/table/PartyLand.h"
 #include "engine/table/Gameshow.h"
@@ -35,6 +36,30 @@
 #include "engine/table/StonesNBones.h"
 #include "engine/view/TableScreen.h"
 #include "core/Png.h"
+
+namespace {
+
+/// What is compared: the data segment up to where the next begins, and the code segment's
+/// variables, among its code, up to here. (The code segment begins kCodeAt into the program's
+/// image: segment oracle::kCodeSegment.)
+constexpr unsigned kDataEnd = 0x6c00, kCodeEnd = 0xac00;
+constexpr int kCodeAt = 0x100;
+/// The image is taken from the original's memory up to here, short of the video card's window.
+constexpr std::size_t kImageTaken = 0x90000;
+/// No place yet.
+constexpr unsigned kNoPlace = 0xfffffff;
+
+/// --rough: the best scores (four of sixteen bytes) put at nought; the ball thrown where it
+/// stays on the table (its corner 8 up and left of its middle; not above row 40, where it
+/// would be drawn over the display's memory, nor right of 304), with a speed of up to
+/// so much each way; on the ramps one time in 6; and where one of the table's lists
+/// says, more often than not.
+constexpr int kOnRamps = 0xff;  ///< the layer: 0 the playfield
+constexpr unsigned kAnywhere = 0, kRollGround = 1, kRollRamps = 2, kHit = 3;
+/// --wild: one frame of so many, a nudge, a letter, enter, F1 to F4 (more players); the letters
+/// are the codes from Q's on, to M's.
+constexpr int kFirstLetter = 0x10;
+}  // namespace
 
 int main(int argc, char** argv) {
   if (argc < 4) {
@@ -88,12 +113,12 @@ int main(int argc, char** argv) {
     else made = std::make_unique<encore::StonesNBones>(*prg);
     encore::Engine& e = *made;
     oracle::Machine m(dir, table, config);
-    m.setLoop(0x10, e.F(encore::at::mainLoop));
+    m.setLoop(oracle::kCodeSegment, e.F(encore::at::mainLoop));
     m.loopsPerFrame = e.loopsPerFrame;
     m.boot();
     if (const char* w = std::getenv("ENCORE_WATCH")) e.debugWatch = static_cast<int>(std::strtol(w, nullptr, 16));
     if (const char* w = std::getenv("ENCORE_WATCH")) m.watchWrite = (oracle::u32{m.seg(e.dataSegment())} << 4) + static_cast<oracle::u32>(std::strtol(w, nullptr, 16));
-    const oracle::u16 ds = m.seg(e.dataSegment()), cs = m.seg(0x10);
+    const oracle::u16 ds = m.seg(e.dataSegment()), cs = m.seg(oracle::kCodeSegment);
     if (const char* from = std::getenv("ENCORE_BOUNCE")) {
       const int fromFrame = std::atoi(from);
       m.cpu.watch[(oracle::u32{cs} << 16) | e.F(encore::at::bounce)] = [&, fromFrame] {
@@ -111,7 +136,7 @@ int main(int argc, char** argv) {
       // start-up left, before it is taken over like every other difference.
       e.start(options);
       int differ = 0;
-      unsigned lastAt = 0xfffffff;
+      unsigned lastAt = kNoPlace;
       const char* lastWhat = "";
       auto say = [&](const char* what, unsigned a, unsigned ours, unsigned theirs) {
         // what the start-up leaves that is nothing to the engine: the sound driver's file
@@ -125,14 +150,14 @@ int main(int argc, char** argv) {
         lastAt = a;
         lastWhat = what;
       };
-      for (unsigned a = 0; a < 0x6c00; ++a)
+      for (unsigned a = 0; a < kDataEnd; ++a)
         if (e.memory()[a] != m.peek8(ds, static_cast<oracle::u16>(a))) say("data", a, e.memory()[a], m.peek8(ds, static_cast<oracle::u16>(a)));
-      for (unsigned a = 0; a < 0xac00; ++a)
+      for (unsigned a = 0; a < kCodeEnd; ++a)
         if (e.codeMemory()[a] != m.peek8(cs, static_cast<oracle::u16>(a))) say("code variable", a, e.codeMemory()[a], m.peek8(cs, static_cast<oracle::u16>(a)));
-      for (std::size_t a = 0x100; a + 0x10000 < e.image().size(); ++a) {
+      for (std::size_t a = kCodeAt; a + 0x10000 < e.image().size(); ++a) {
         const oracle::u8 theirs = m.peek8(static_cast<oracle::u16>(encore::Program::kLoadSegment + (a >> 4)), static_cast<oracle::u16>(a & 15));
-        const std::size_t dataAt = std::size_t{e.dataSegment()} * 16, codeAt = 0x100;
-        if ((a >= dataAt && a < dataAt + 0x10000) || (a >= codeAt && a < codeAt + 0xac00)) continue;  // those two are kept apart
+        const std::size_t dataAt = std::size_t{e.dataSegment()} * 16, codeAt = kCodeAt;
+        if ((a >= dataAt && a < dataAt + 0x10000) || (a >= codeAt && a < codeAt + kCodeEnd)) continue;  // those two are kept apart
         if (e.image()[a] != theirs) say("the program's other segments, byte", static_cast<unsigned>(a), e.image()[a], theirs);
       }
       for (std::size_t p = 0; p < 4; ++p)
@@ -147,14 +172,15 @@ int main(int argc, char** argv) {
       e.memory()[a] = m.peek8(ds, static_cast<oracle::u16>(a));
       e.codeMemory()[a] = m.peek8(cs, static_cast<oracle::u16>(a));
     }
-    for (std::size_t a = 0; a < e.image().size() && a < 0x90000; ++a)
+    for (std::size_t a = 0; a < e.image().size() && a < kImageTaken; ++a)
       e.image()[a] = m.peek8(static_cast<oracle::u16>(encore::Program::kLoadSegment + (a >> 4)), static_cast<oracle::u16>(a & 15));
     e.colours() = m.vga.dac;
     e.videoMemory() = m.vga.planes;
 
     // The data segment ends where the next begins; the code's variables are among its code.
-    const unsigned dataEnd = 0x6c00, codeEnd = 0xac00;
+    const unsigned dataEnd = kDataEnd, codeEnd = kCodeEnd;
     std::set<unsigned> seen;
+    namespace scan = oracle::scan;
     unsigned rng = static_cast<unsigned>(flip) * 2654435761u + 1;
     bool left = false, right = false;
     int shakeUntil = 0;
@@ -180,12 +206,12 @@ int main(int argc, char** argv) {
           m.key(static_cast<oracle::u8>(code));
           e.key(static_cast<encore::u8>(code));
         };
-        if (random() % 23 == 0) { left = !left; both(left ? 0x2a : 0xaa); }
-        if (random() % 23 == 0) { right = !right; both(right ? 0x36 : 0xb6); }
-        if (frame % 900 == 0) both(0x1c);
-        if (frame % 900 == 5) both(0x9c);
-        if (frame % 300 == 100) { both(0xe0); both(0x50); }
-        if (frame % 300 == 100 + static_cast<int>(random() % 60) + 20) { both(0xe0); both(0xd0); }
+        if (random() % 23 == 0) { left = !left; both(left ? scan::leftShift : scan::leftShiftUp); }
+        if (random() % 23 == 0) { right = !right; both(right ? scan::rightShift : scan::rightShiftUp); }
+        if (frame % 900 == 0) both(scan::enter);
+        if (frame % 900 == 5) both(scan::enterUp);
+        if (frame % 300 == 100) { both(scan::extended); both(scan::down); }
+        if (frame % 300 == 100 + static_cast<int>(random() % 60) + 20) { both(scan::extended); both(scan::downUp); }
         if (rough) {
           // the same change made to both memories: the two are still to stay alike
           auto poke = [&](encore::u16 partyLandAddress, unsigned value, int bytes) {
@@ -211,21 +237,22 @@ int main(int argc, char** argv) {
           // (now and then quickly one after another, for what takes two shots in a few seconds)
           if (frame % 3000 == 0) throwEvery = std::array<unsigned, 4>{40, 120, 350, 350}[random() % 4];
           if ((leaving || random() % throwEvery == 0) && m.peek8(ds, e.A(encore::at::ballHidden)) == 0 && m.peek8(ds, e.A(encore::at::betweenBalls)) == 0) {
-            unsigned x = 8 + random() % 300, y = 60 + random() % 510, layer = random() % 6 == 0 ? 0xff : 0;
+            unsigned x = 8u + random() % 300u, y = 60u + random() % 510u, layer = random() % 6 == 0 ? kOnRamps : 0;
             int speed = 1000;
-            if (const unsigned where = random() % 4; where != 0) {
+            if (const unsigned where = random() % 4; where != kAnywhere) {
               // more often than not, into one of the table's own places: where rolling over
               // counts (on the playfield, on the ramps), or where touching something does
-              const encore::u16 list = e.A(where == 1 ? encore::at::rollTriggersGround : where == 2 ? encore::at::rollTriggersRamps : encore::at::hitTriggerList);
+              const encore::u16 list = e.A(where == kRollGround ? encore::at::rollTriggersGround : where == kRollRamps ? encore::at::rollTriggersRamps : encore::at::hitTriggerList);
               unsigned entries = 0;
-              while (e.nativeW(static_cast<encore::u16>(list + entries * 10)) != 0) ++entries;
+              while (e.nativeW(static_cast<encore::u16>(list + entries * encore::zoneRec::size)) != 0) ++entries;
               if (entries != 0) {
-                const encore::u16 entry = static_cast<encore::u16>(list + (random() % entries) * 10);
+                const encore::u16 entry = static_cast<encore::u16>(list + (random() % entries) * encore::zoneRec::size);
                 auto word = [&](int i) { return static_cast<unsigned>(e.nativeW(static_cast<encore::u16>(entry + i))); };
-                x = word(0) + random() % (word(4) - word(0) + 1) - 8;
-                y = word(2) + random() % (word(6) - word(2) + 1) - 8;
-                layer = where == 2 ? 0xff : 0;
-                speed = where == 3 ? 1500 : 300;
+                namespace zone = encore::zoneRec;
+                x = word(zone::xMin) + random() % (word(zone::xMax) - word(zone::xMin) + 1) - 8;
+                y = word(zone::yMin) + random() % (word(zone::yMax) - word(zone::yMin) + 1) - 8;
+                layer = where == kRollRamps ? kOnRamps : 0;
+                speed = where == kHit ? 1500 : 300;
               }
             }
             // (on the table: left of its edge the original draws the ball over what it reads the
@@ -235,8 +262,8 @@ int main(int argc, char** argv) {
             if (std::getenv("ENCORE_KEYS")) std::printf("thrown to %u,%u layer %02x at frame %d\n", x, y, layer, frame);
             poke(encore::at::ballX, x, 2);
             poke(encore::at::ballY, y, 2);
-            poke(encore::at::ballXFixed, x * 0x400, 4);
-            poke(encore::at::ballYFixed, y * 0x400, 4);
+            poke(encore::at::ballXFixed, x * 0x400u, 4);
+            poke(encore::at::ballYFixed, y * 0x400u, 4);
             poke(encore::at::ballVx, static_cast<unsigned>(static_cast<int>(random() % static_cast<unsigned>(2 * speed + 1)) - speed), 2);
             poke(encore::at::ballVy, static_cast<unsigned>(static_cast<int>(random() % static_cast<unsigned>(2 * speed + 1)) - speed), 2);
             poke(encore::at::layer, layer, 1);
@@ -247,21 +274,21 @@ int main(int argc, char** argv) {
             const unsigned light = 1 + random() % e.kw(encore::at::lightCountInsn, 1);
             const encore::u16 flag = static_cast<encore::u16>(e.A(encore::at::lightStates) + light);
             const oracle::u8 now = m.peek8(ds, flag);
-            if (now == 0 || now == 0xff) {
+            if (now == 0 || now == encore::kSet) {
               m.poke8(ds, flag, static_cast<oracle::u8>(~now));
               e.memory()[flag] = static_cast<encore::u8>(~now);
             }
           }
           if (random() % 9000 == 0) shakeUntil = frame + 60;
-          if (frame < shakeUntil && frame % 4 == 0) both(0x39);
-          if (frame < shakeUntil && frame % 4 == 2) both(0xb9);
+          if (frame < shakeUntil && frame % 4 == 0) both(scan::space);
+          if (frame < shakeUntil && frame % 4 == 2) both(scan::spaceUp);
         }
         if (wild) {  // and the rest of the keyboard: nudges, letters, more players
-          if (random() % 500 == 0) both(0x39);
-          if (random() % 500 == 1) both(0xb9);
-          if (random() % 700 == 0) { const int letter = 0x10 + static_cast<int>(random() % 35); both(letter); both(letter | 0x80); }
-          if (random() % 2500 == 0) { both(0x1c); both(0x9c); }
-          if (random() % 4000 == 0) { const int f = 0x3b + static_cast<int>(random() % 4); both(f); both(f | 0x80); }
+          if (random() % 500 == 0) both(scan::space);
+          if (random() % 500 == 1) both(scan::spaceUp);
+          if (random() % 700 == 0) { const int letter = kFirstLetter + static_cast<int>(random() % 35); both(letter); both(letter | scan::released); }
+          if (random() % 2500 == 0) { both(scan::enter); both(scan::enterUp); }
+          if (random() % 4000 == 0) { const int f = scan::f1 + static_cast<int>(random() % 4); both(f); both(f | scan::released); }
         }
       }
       // The original can go astray by itself, and then there is nothing to compare with: while
@@ -314,7 +341,7 @@ int main(int argc, char** argv) {
         if (std::getenv("ENCORE_VRAM")) {
           const unsigned base = m.peek16(ds, e.A(encore::at::marksRampsCopy));
           int bad = 0, first = -1;
-          for (unsigned si = 0; si < 20400; ++si)
+          for (unsigned si = 0; si < 20400u; ++si)
             if (m.vga.planes[si & 3][(base + (si >> 2)) & 0xffff] != m.peek8(m.seg(encore::at::marksRamps), static_cast<oracle::u16>(si))) {
               ++bad;
               if (first < 0) first = static_cast<int>(si);
@@ -392,7 +419,7 @@ int main(int argc, char** argv) {
         }
       if (picture) {
         const int height = encore::TableScreen::height(options.highResolution);
-        std::vector<encore::u8> ours(static_cast<std::size_t>(320 * height));
+        std::vector<encore::u8> ours(static_cast<std::size_t>(encore::TableScreen::kWidth * height));
         screen->draw(e, ours.data(), height);
         const auto theirs = m.vga.picture(height);
         long wrong = 0;
@@ -404,14 +431,15 @@ int main(int argc, char** argv) {
           picturePixels += wrong;
           if (pictureFrames <= 8)
             std::printf("frame %d: the screen differs in %ld dots, the first at %zu,%zu (ours %02x, the original's %02x); top row %d, the original's memory from %04x, split at %d\n",
-                        frame, wrong, first % 320, first / 320, ours[first], theirs[first], static_cast<encore::i16>(e.screenRow()) - 33,
+                        frame, wrong, first % encore::TableScreen::kWidth, first / encore::TableScreen::kWidth, ours[first], theirs[first], static_cast<encore::i16>(e.screenRow()) - encore::TableScreen::kDisplayRows,
                         m.vga.startAddress(), m.vga.lineCompare());
         }
         if (const char* at = std::getenv("ENCORE_PICTURE"); at && frame == std::atoi(at)) {
           auto save = [&](const char* name, const encore::u8* px) {
+            using oracle::Vga;
             std::vector<encore::u8> rgb(static_cast<std::size_t>(320 * height * 3));
             for (std::size_t i = 0; i < static_cast<std::size_t>(320 * height); ++i)
-              for (std::size_t c = 0; c < 3; ++c) rgb[i * 3 + c] = static_cast<encore::u8>(m.vga.dac[px[i] * 3u + c] * 255 / 63);
+              for (std::size_t c = 0; c < 3; ++c) rgb[i * 3 + c] = static_cast<encore::u8>(m.vga.dac[px[i] * 3u + c] * UINT8_MAX / 0x3f);
             encore::writeRgbPng(name, rgb.data(), 320, height);
           };
           save("ours.png", ours.data());
@@ -440,10 +468,10 @@ int main(int argc, char** argv) {
       if (const char* at = std::getenv("ENCORE_SEGMENTS"); at && frame == std::atoi(at)) {
         // the whole program, once: where its other segments (the masks, say) differ
         int n = 0;
-        for (std::size_t a = 0x100; a + 0x10000 < e.image().size(); ++a) {
+        for (std::size_t a = kCodeAt; a + 0x10000 < e.image().size(); ++a) {
           const oracle::u8 theirs = m.peek8(static_cast<oracle::u16>(encore::Program::kLoadSegment + (a >> 4)), static_cast<oracle::u16>(a & 15));
           const std::size_t dataAt = std::size_t{e.dataSegment()} * 16;
-          if ((a >= dataAt && a < dataAt + 0x10000) || a < 0x100 + 0xac00u) continue;
+          if ((a >= dataAt && a < dataAt + 0x10000) || a < kCodeAt + kCodeEnd) continue;
           if (e.image()[a] != theirs && ++n <= 12)
             std::printf("frame %d: the program's byte %05zx (segment %04zx) ours %02x, the original's %02x\n", frame, a, a >> 4, e.image()[a], theirs);
         }
