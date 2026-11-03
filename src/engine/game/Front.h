@@ -20,6 +20,124 @@
 
 namespace encore {
 
+/// INTRO.PRG's places and numbers, by its own addresses. The names are those of pfr's rewrite
+/// of the game (github.com/wanda-phi/pfr: src/intro.rs, and src/assets/intro.rs for where things
+/// are in the program) where it has the same thing; else what the code does with them.
+namespace intro {
+
+/// The program's segments: its own two, and the pictures', each a picture file as it was.
+namespace seg {
+constexpr u16 data = 0x0080;
+constexpr u16 code = 0x364c;
+constexpr u16 logo0Upper = 0x3b41;  ///< the first slide, in two halves
+constexpr u16 logo0Lower = 0x4285;
+constexpr u16 logo1Upper = 0x4d6a;  ///< the second
+constexpr u16 logo1Lower = 0x4653;
+constexpr u16 logo2Upper = 0x11c2;  ///< the third
+constexpr u16 logo2Lower = 0x17b2;
+constexpr u16 presents = 0x10a6;  ///< the fourth
+constexpr u16 pflogo = 0x0a05;  ///< the fifth, the game's name
+constexpr u16 hiscoresLq = 0x3301;  ///< the heading of the pages of best scores, while they fade
+constexpr u16 hiscoresHq = 0x3499;  ///< and while they are shown
+}  // namespace seg
+
+/// Variables and texts in the data segment.
+namespace var {
+constexpr u16 logo1Colours = 0x0300;  ///< the second slide's colours, copied here (the first's at 0)
+constexpr u16 logo0Palette = 0x060b;  ///< word: where the first slide's colours were copied to
+constexpr u16 logo1Palette = 0x060d;  ///< word: and the second's
+constexpr u16 hiscoresLq = 0x09df;  ///< the headings of the pages of best scores, kept (50 bytes by 40 rows of each plane)
+constexpr u16 hiscoresHq = 0x291f;
+constexpr u16 balls = 0x49a3;  ///< the options, as PINBALL.CFG has them: 1 for five balls
+constexpr u16 angle = 0x49a4;  ///< 1 low (and this version's 2, higher)
+constexpr u16 scrollSpeed = 0x49a5;
+constexpr u16 noMusic = 0x49a6;
+constexpr u16 resolution = 0x49a7;
+constexpr u16 mono = 0x49a8;
+constexpr u16 pageTaken = 0x4bff;  ///< pages less two: with pageAt_ moved on, the one just taken
+constexpr u16 pages = 0x4c01;  ///< words: the pages shown in place of the banners; the first the
+                               ///< best scores of the two tables shown, which an ffff after it
+                               ///< stands for; 0 ends the list
+constexpr u16 textPages = 0x4c03;  ///< the list past that first
+constexpr u16 optionsText = 0x4e40;  ///< the page of options: its heading, its six and saving
+constexpr u16 optionsSave = 0x4edf;  ///< its line for saving
+constexpr u16 optionsTextEnd = 0x4ef8;
+constexpr u16 scoresTables12 = 0x4efc;  ///< the page of best scores of tables 1 and 2
+constexpr u16 scoresTable1 = 0x4f31;  ///< where table 1's first best score is written (its initials), a line on to each next
+constexpr u16 scoresTable2 = 0x4fc1;
+constexpr u16 scoresTables34 = 0x501c;  ///< and of tables 3 and 4
+constexpr u16 scoresTable3 = 0x5051;
+constexpr u16 scoresTable4 = 0x50e1;
+constexpr u16 logo0Cmap = 0x5271;  ///< words: where each slide's colours are in its segment
+constexpr u16 logo1Cmap = 0x5273;
+constexpr u16 pflogoCmap = 0x5275;
+constexpr u16 logo2Cmap = 0x5279;
+constexpr u16 presentsCmap = 0x527b;
+constexpr u16 black = 0x527d;  ///< 0x300 bytes: every colour black, which the slides fade from and to
+constexpr u16 white = 0x557d;  ///< and white, which the second and third come out of
+constexpr u16 tablePair = 0x588e;  ///< word: 2 while the banners are of tables 3 and 4
+constexpr u16 pictureRows = 0x5890;  ///< words, one for each of pictures: the row it is unpacked at
+constexpr u16 pictureSegments = 0x589e;  ///< its segment
+constexpr u16 pictureCmaps = 0x58ac;  ///< where its colours are in that segment, once unpacked
+constexpr u16 leavePalette = 0x58ba;  ///< the colours the menu fades out from: the bottom part's,
+constexpr u16 leavePaletteTop = 0x58ea;  ///< then the top part's
+constexpr u16 warpTable = 0x597a;  ///< the banners' rows drawn in, a frame's after another, ff after each; ff ff ends
+constexpr u16 glyphs = 0x59ed;  ///< words: where each letter is in the card's memory, by its code; ffff for none
+}  // namespace var
+
+/// In a line of best scores: where the score's twelve digits begin, after the initials.
+/// Where in video memory the screen starts for the second and the third slides.
+namespace screenStart {
+constexpr u16 logo1 = 0x4d30, logo2 = 0x99c0;
+}  // namespace screenStart
+
+namespace scoreLine {
+constexpr u16 score = 6;
+}  // namespace scoreLine
+
+/// The options' words, each ending in a nought.
+namespace optionWords {
+constexpr u16 balls3 = 0x4df6;
+constexpr u16 balls5 = 0x4df8;
+constexpr u16 normal = 0x4dfa;
+constexpr u16 high = 0x4e01;
+constexpr u16 low = 0x4e08;
+constexpr u16 scrollSpeeds = 0x4e24;  ///< words: where HARD, MEDIUM and SOFT are
+constexpr u16 on = 0x4e2a;
+constexpr u16 off = 0x4e2e;
+constexpr u16 color = 0x4e32;
+constexpr u16 mono = 0x4e38;
+constexpr u16 mark = 0x4e3e;  ///< ">", beside the option chosen
+}  // namespace optionWords
+
+/// The menu's pictures, by their place in the lists of them (var::pictureRows and the next two).
+namespace pictures {
+constexpr u16 left = 0x00;  ///< the panel on the left
+constexpr u16 fontHq = 0x02;  ///< the letters
+constexpr u16 fontLq = 0x04;  ///< the letters while a page fades
+constexpr u16 table1 = 0x06;  ///< the four banners
+constexpr u16 table2 = 0x08;
+constexpr u16 table3 = 0x0a;
+constexpr u16 table4 = 0x0c;
+}  // namespace pictures
+
+/// The texts on the panel on the left, in the code segment: ten lines of twelve letters each.
+namespace code {
+constexpr u16 leftTextMenu = 0x288e;
+constexpr u16 leftTextOptions = 0x2906;
+}  // namespace code
+
+/// Colours the program keeps for its own.
+namespace palette {
+constexpr u8 bottom = 0x00;  ///< sixteen for the screen's bottom part, and for all of it
+constexpr u8 top = 0x10;  ///< sixteen for the top part, while the palette is split
+constexpr u8 letterLight = 0x01;  ///< the letters' three colours
+constexpr u8 letterMid = 0x0c;
+constexpr u8 letterDark = 0x0e;
+}  // namespace palette
+
+}  // namespace intro
+
 class Front {
  public:
   static constexpr int kWidth = 640, kHeight = 480;
@@ -119,14 +237,14 @@ class Front {
   NextFrame nextFrame() { return NextFrame{this}; }
 
   // --- the program's memory
-  u8& ds(u16 at) { return image_[0x800 + at]; }
+  u8& ds(u16 at) { return image_[intro::seg::data * 16 + at]; }
   u16 dsw(u16 at) { return static_cast<u16>(ds(at) | (ds(static_cast<u16>(at + 1)) << 8)); }
   void setw(u16 at, u16 v) {
     ds(at) = static_cast<u8>(v);
     ds(static_cast<u16>(at + 1)) = static_cast<u8>(v >> 8);
   }
   u8& farByte(u16 segment, u32 offset) { return image_[(std::size_t{segment} * 16 + offset) % image_.size()]; }
-  u8 cs(u16 at) const { return image_[std::size_t{0x364c} * 16 + at]; }
+  u8 cs(u16 at) const { return image_[std::size_t{intro::seg::code} * 16 + at]; }
 
   // --- the video card
   enum class Mode { Chunky320, Planar480, Planar240 };
@@ -216,7 +334,7 @@ class Front {
   u16 slideAt_ = 0;                ///< cs:2c33
   bool scrollerOn_ = false;        ///< cs:2980
   i16 scrollerCount_ = 0x1e0;      ///< cs:297e
-  u16 scrollerText_ = 0x288e, scrollerNow_ = 0x288e;  ///< cs:2981, cs:2983
+  u16 scrollerText_ = intro::code::leftTextMenu, scrollerNow_ = intro::code::leftTextMenu;  ///< cs:2981, cs:2983
   bool scrollerShowsText_ = false; ///< cs:2985: 29df when true, 29fa when not
   u16 drawAt_ = 0, fontAt_ = 0;    ///< cs:2cee, cs:2cf0
   u16 pageAt_ = 2;                 ///< cs:362d
