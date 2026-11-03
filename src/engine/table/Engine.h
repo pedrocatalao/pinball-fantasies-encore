@@ -101,17 +101,17 @@ constexpr u16 score = 0, bonus = 12, script = 24;
 class SoundDriver {
  public:
   virtual ~SoundDriver() = default;
-  /// Function 0x11: a sample of the module (1-31) at a note (1-36), on a channel (1-4).
+  /// Function 0x11 (int66::playSfx): a sample of the module (1-31) at a note (1-36), on a channel (1-4).
   virtual void effect(u8 sample, u8 note, u8 volume, u8 channel) { (void)sample, (void)note, (void)volume, (void)channel; }
-  /// Function 0x10: go to a place in the song at the next tick.
+  /// Function 0x10 (int66::jump): go to a place in the song at the next tick.
   virtual u8 jump(u16 position) { (void)position; return 0; }
-  /// Function 0x06: the volume, 0x100 for all of it.
+  /// Function 0x06 (int66::setMasterVolume): the volume, 0x100 for all of it.
   virtual void volume(u16 level) { (void)level; }
-  /// Function 0x0f: stop the music.
+  /// Function 0x0f (int66::stop): stop the music.
   virtual void stop() {}
-  /// Function 0x04: start it.
+  /// Function 0x04 (int66::start): start it.
   virtual u8 start() { return 0; }
-  /// Function 0x15: what is playing; bit 3 is set while an effect still sounds. The silent
+  /// Function 0x15 (int66::status): what is playing; bit 3 is set while an effect still sounds. The silent
   /// driver always answers that one does.
   virtual u8 status() { return 0x0a; }
 };

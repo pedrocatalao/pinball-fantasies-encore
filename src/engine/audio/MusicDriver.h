@@ -28,6 +28,21 @@
 
 namespace encore {
 
+/// The driver's functions done here, by the number an int 66h is given in AL (SB16.SDR picks
+/// the routine at cs:004e).
+namespace int66 {
+constexpr u8 start = 0x04;             ///< cs:061a
+constexpr u8 setMasterVolume = 0x06;   ///< cs:02f8
+constexpr u8 position = 0x09;          ///< cs:0265
+constexpr u8 stop = 0x0f;              ///< cs:023c
+constexpr u8 jump = 0x10;              ///< cs:0201
+constexpr u8 playSfx = 0x11;           ///< cs:01db
+constexpr u8 load = 0x12;              ///< cs:01b3
+constexpr u8 setMusicCallback = 0x13;  ///< cs:01a4: the routine asked at each jump in the song
+constexpr u8 status = 0x15;            ///< cs:0171
+constexpr u8 ticks = 0x16;             ///< cs:0132
+}  // namespace int66
+
 /// Who says where the music goes. It is asked by whoever plays the music, which is the sound
 /// card's thread when there is a card.
 class Conductor {
@@ -37,7 +52,8 @@ class Conductor {
   virtual int interrupt() { return -1; }
   /// The music has played a pattern through: it would go on to `following`.
   virtual u8 next(u8 following) { return following; }
-  /// Function 0x13's callback: the music comes to a jump to `place`; the place to go to.
+  /// The callback int66::setMusicCallback gives: the music comes to a jump to `place`; the
+  /// place to go to.
   virtual u8 jump(u8 place) { return place; }
 };
 
@@ -45,7 +61,7 @@ class MusicDriver : public SoundDriver {
  public:
   explicit MusicDriver(int outputRate = 48000);
 
-  /// Function 0x12: the module (a .MOD file's bytes). False if it is not one.
+  /// int66::load: the module (a .MOD file's bytes). False if it is not one.
   bool load(ByteView mod);
   /// Who is asked where the music goes; nobody, and it goes where the module says.
   Conductor* conductor = nullptr;
@@ -60,7 +76,6 @@ class MusicDriver : public SoundDriver {
   /// This version's pause: a stop keeps every note where it is, and the next start goes on
   /// from there. (The driver's own stop silences the channels for good.)
   bool holdOnStop = false;
-  /// Function 0x18: both sides the same.
   /// This version's own mixing, balanced between the driver's and a smooth one, or the
   /// driver's own. Balanced, a sample is read half from its nearest byte, as the driver takes
   /// it, and half from between its bytes (an eight-point windowed sinc); each channel is heard
@@ -71,10 +86,10 @@ class MusicDriver : public SoundDriver {
   /// the same either way.
   void setBalanced(bool on) { balanced_.store(on, std::memory_order_relaxed); }
   bool balanced() const { return balanced_.load(std::memory_order_relaxed); }
-  /// Function 0x09: where the music is: its place in the song and the row there.
+  /// int66::position: where the music is: its place in the song and the row there.
   int position() const { return position_; }
   int row() const { return (rowAt_ % 0x300) / 12; }
-  /// Function 0x16: fiftieths of a second played.
+  /// int66::ticks: fiftieths of a second played.
   u32 ticks() const { return ticks_.load(std::memory_order_acquire); }
   /// The effects asked for from now on belong to this moment, in seconds of the steady clock:
   /// each is heard one helping of sound after it. Never told, they are heard at the next helping.

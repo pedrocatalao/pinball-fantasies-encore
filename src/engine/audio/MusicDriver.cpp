@@ -8,6 +8,8 @@
 #include <cstring>
 #include <vector>
 
+#include "engine/data/ModFile.h"
+
 namespace encore {
 namespace {
 
@@ -21,6 +23,10 @@ constexpr u8 kSine[32] = {0x00, 0x18, 0x31, 0x4a, 0x61, 0x78, 0x8d, 0xa1, 0xb4, 
 
 /// The Amiga's clock, as the driver has it (cs:1001): a period is so many of its beats.
 constexpr u32 kClock = 0x361f0f;
+
+/// A module of 31 samples, as the driver tells one (cs:077a): the sum of its mark's two
+/// words, "M.K." or "FLT4".
+constexpr u16 kMarkMK = 0x5c98, kMarkFLT4 = 0x809a;
 
 /// The balanced mixing reads a sample between its bytes from the eight around the place: a
 /// sinc, narrowed a little below the sample's own top frequency and shaped by a Blackman-Harris
@@ -102,24 +108,25 @@ void MusicDriver::tone(float* out, std::size_t frames) {
 bool MusicDriver::load(ByteView mod) {
   std::lock_guard lock(mutex_);
   loaded_ = false;
-  if (mod.size() < 0x43c) return false;
-  // "M.K." and one other mark say thirty-one samples, lengths of loops in words (cs:077a)
-  const u16 mark = static_cast<u16>((mod[0x438] | (mod[0x439] << 8)) + (mod[0x43a] | (mod[0x43b] << 8)));
-  const bool modern = mark == 0x5c98 || mark == 0x809a;
+  if (mod.size() < modRec::patterns) return false;
+  // "M.K." and "FLT4" say thirty-one samples, lengths of loops in words (cs:077a)
+  const u16 mark = static_cast<u16>((mod[modRec::mark] | (mod[modRec::mark + 1] << 8)) +
+                                    (mod[modRec::mark + 2] | (mod[modRec::mark + 3] << 8)));
+  const bool modern = mark == kMarkMK || mark == kMarkFLT4;
   const std::size_t count = modern ? 31 : 15;
-  const std::size_t header = 20 + count * 30;
-  if (mod.size() < header + 130 + (modern ? 4 : 0)) return false;
-  length_ = mod[header];
-  restart_ = mod[header + 1] & 0x7f;
+  const std::size_t header = modRec::samples + count * sampleRec::size;
+  if (mod.size() < header + songRec::size + (modern ? 4 : 0)) return false;
+  length_ = mod[header + songRec::length];
+  restart_ = mod[header + songRec::restart] & 0x7f;
   if (restart_ >= length_) restart_ = 0;
   u8 patterns = 0;
   for (std::size_t i = 0; i < 128; ++i) {
-    order_[i] = mod[header + 2 + i];
+    order_[i] = mod[header + songRec::order + i];
     patterns = std::max(patterns, order_[i]);
   }
   ++patterns;
-  const std::size_t notes = header + 130 + (modern ? 4 : 0);
-  if (mod.size() < notes + std::size_t{patterns} * 0x400) return false;
+  const std::size_t notes = header + songRec::size + (modern ? 4 : 0);
+  if (mod.size() < notes + std::size_t{patterns} * modRec::patternSize) return false;
   cells_.assign(std::size_t{patterns} * 0x300, 0);
   for (std::size_t i = 0; i < std::size_t{patterns} * 0x100; ++i) {
     const u8* in = &mod[notes + i * 4];
@@ -141,15 +148,15 @@ bool MusicDriver::load(ByteView mod) {
   // the samples (cs:0964)
   samples_.fill(Sample{});
   sampleData_.assign(31, {});
-  std::size_t at = notes + std::size_t{patterns} * 0x400;
+  std::size_t at = notes + std::size_t{patterns} * modRec::patternSize;
   for (std::size_t s = 0; s < count; ++s) {
-    const std::size_t h = 20 + s * 30;
+    const std::size_t h = modRec::samples + s * sampleRec::size;
     Sample& out = samples_[s];
-    const u16 length = static_cast<u16>(big(mod, h + 22) << 1);
+    const u16 length = static_cast<u16>(big(mod, h + sampleRec::length) << 1);
     if (length < 3) continue;  // (nothing: it is left a silent byte)
-    out.table = static_cast<u16>((mod[h + 24] & 0x0f) * 36);
-    out.volume = mod[h + 25];
-    u16 loopStart = big(mod, h + 26), loopLength = big(mod, h + 28);
+    out.table = static_cast<u16>((mod[h + sampleRec::finetune] & 0x0f) * 36);
+    out.volume = mod[h + sampleRec::volume];
+    u16 loopStart = big(mod, h + sampleRec::loopStart), loopLength = big(mod, h + sampleRec::loopLength);
     if (modern) {
       loopStart = static_cast<u16>(loopStart << 1);
       loopLength = static_cast<u16>(loopLength << 1);
@@ -186,7 +193,7 @@ u32 MusicDriver::stepFor(int period) const {
 
 int MusicDriver::periodAt(u16 index) const { return index < std::size(kPeriods) ? kPeriods[index] : 113; }
 
-/// Function 0x04 (cs:061a), as far as the music goes: it goes on from where it was, the next
+/// int66::start (cs:061a), as far as the music goes: it goes on from where it was, the next
 /// row at the next tick.
 u8 MusicDriver::start() {
   std::lock_guard lock(mutex_);
@@ -196,7 +203,7 @@ u8 MusicDriver::start() {
   return 0;
 }
 
-/// Function 0x0f (cs:023c, cs:1417): the card is stopped and every channel falls silent.
+/// int66::stop (cs:023c, cs:1417): the card is stopped and every channel falls silent.
 void MusicDriver::stop() {
   std::lock_guard lock(mutex_);
   playing_ = false;
@@ -211,6 +218,7 @@ void MusicDriver::stop() {
   voices_.fill(Voice{});
 }
 
+/// int66::setMasterVolume (cs:02f8).
 void MusicDriver::volume(u16 level) {
   std::lock_guard lock(mutex_);
   // cs:1584: the level goes to the sound card's own mixer as a byte, 0x100 becoming its 0xff:
@@ -218,7 +226,7 @@ void MusicDriver::volume(u16 level) {
   master_ = static_cast<u8>(level - (level >> 8));
 }
 
-/// Function 0x10 (cs:0201): the place to go to once the row now due has been played. The
+/// int66::jump (cs:0201): the place to go to once the row now due has been played. The
 /// answer is the place the music was at.
 u8 MusicDriver::jump(u16 position) {
   std::lock_guard lock(mutex_);
@@ -230,7 +238,7 @@ u8 MusicDriver::jump(u16 position) {
   return static_cast<u8>(was);
 }
 
-/// Function 0x11 (cs:01db): a note on a channel, with a volume if one is given.
+/// int66::playSfx (cs:01db): a note on a channel, with a volume if one is given.
 /// (Here it waits for its moment in the sound: render.)
 void MusicDriver::effect(u8 sample, u8 note, u8 volume, u8 channel) {
   std::lock_guard lock(mutex_);
@@ -262,13 +270,13 @@ void MusicDriver::startEffect(const Asked& a) {
     }
     *to = {c, a.channel <= 2, ++voicesStarted_};
   }
-  trigger(c, a.sample, a.note, a.volume ? 0x0c : 0, a.volume);
+  trigger(c, a.sample, a.note, a.volume ? modEffect::setVolume : 0, a.volume);
   c.byEffect = true;
 }
 
 /// cs:0e3e: a note begins, or an effect on the one that plays.
 void MusicDriver::trigger(Channel& c, u8 sample, u8 note, u8 effect, u8 param) {
-  if (effect != 3 && effect != 5) {
+  if (effect != modEffect::tonePortamento && effect != modEffect::tonePortamentoVolumeSlide) {
     if (sample != 0 && sample <= 31) {  // cs:1026
       const Sample& s = samples_[sample - 1u];
       c.data = s.data;
@@ -297,23 +305,23 @@ void MusicDriver::trigger(Channel& c, u8 sample, u8 note, u8 effect, u8 param) {
   c.vibrated = false;
   c.tick = Channel::Tick::None;
   switch (effect & 0x0f) {
-    case 0x0:  // the note and two above it in turn
+    case modEffect::arpeggio:  // the note and two above it in turn
       if (param == 0) break;
       c.arpeggio1 = stepFor(periodAt(static_cast<u16>(c.note + (param >> 4))));
       c.arpeggio2 = stepFor(periodAt(static_cast<u16>(c.note + (param & 0x0f))));
       c.tick = Channel::Tick::Arpeggio;
       break;
-    case 0x1:  // the pitch slides up
-      c.target = 0x71;
+    case modEffect::portamentoUp:  // the pitch slides up
+      c.target = 0x71;  // (the highest note's period)
       c.portamento = static_cast<i16>(-param);
       c.tick = Channel::Tick::Portamento;
       break;
-    case 0x2:  // or down
-      c.target = 0x358;
+    case modEffect::portamentoDown:  // or down
+      c.target = 0x358;  // (the lowest's)
       c.portamento = param;
       c.tick = Channel::Tick::Portamento;
       break;
-    case 0x3:  // or to the note named
+    case modEffect::tonePortamento:  // or to the note named
       if (param != 0) c.portamento = param;
       if (note != 0) {
         c.note = static_cast<u16>(c.table + note - 1);
@@ -323,46 +331,46 @@ void MusicDriver::trigger(Channel& c, u8 sample, u8 note, u8 effect, u8 param) {
       if (c.period >= c.target) c.portamento = static_cast<i16>(-c.portamento);
       c.tick = Channel::Tick::Portamento;
       break;
-    case 0x4:
+    case modEffect::vibrato:
       c.vibrated = true;
       if (param & 0xf0) c.vibratoSpeed = static_cast<u8>((param & 0xf0) >> 2);
       if (param & 0x0f) c.vibratoDepth = param & 0x0f;
       c.tick = Channel::Tick::Vibrato;
       break;
-    case 0x6:
+    case modEffect::vibratoVolumeSlide:
       c.tick = Channel::Tick::VibratoSlide;
       c.slide = static_cast<i16>(((param >> 4) ? (param >> 4) : -(param & 0x0f)) * 256);
       break;
-    case 0x9:  // from further into the sample
+    case modEffect::setSampleOffset:  // from further into the sample
       c.offset = static_cast<u16>(param << 8);
       if (rowSample_ != 0) {
         c.position = c.offset;
         c.started = true;
       }
       break;
-    case 0xa:
+    case modEffect::volumeSlide:
       c.tick = Channel::Tick::Slide;
       c.slide = static_cast<i16>(((param >> 4) ? (param >> 4) : -(param & 0x0f)) * 256);
       break;
-    case 0xb:  // the music jumps: the table is asked where to (cs:12c0)
+    case modEffect::positionJump:  // the music jumps: the table is asked where to (cs:12c0)
       if (pendingRow_ != 0) break;
       position_ = static_cast<u16>((position_ & 0xff00) | (conductor ? conductor->jump(param) : param));
       --position_;
       pendingRow_ = 1;
       placed_ = true;
       break;
-    case 0xc:
+    case modEffect::setVolume:
       c.volume = static_cast<u16>(std::min<u8>(param, 0x40) << 8);
       break;
-    case 0xd:  // on to the next pattern, at a row of it
+    case modEffect::patternBreak:  // on to the next pattern, at a row of it
       pendingRow_ = static_cast<u8>(param + 1);
       break;
-    case 0xe:
-      if ((param >> 4) != 9) break;
+    case modEffect::extended:
+      if ((param >> 4) != modEffect::retrigNote) break;
       c.retrigger = c.retriggerLeft = param & 0x0f;
       c.tick = Channel::Tick::Retrigger;
       break;
-    case 0xf:  // so many ticks to a row, whatever the number
+    case modEffect::setSpeed:  // so many ticks to a row, whatever the number
       speed_ = ticksLeft_ = param;
       break;
     default:
@@ -563,7 +571,7 @@ void MusicDriver::renderAt(float* out, int frames, double now) {
     if (tickFrames_ < 1.0) {
       if (conductor) {
         if (const int place = conductor->interrupt(); place >= 0) {
-          // Function 0x10 lets the row now due be played first, and goes to the new place
+          // int66::jump lets the row now due be played first, and goes to the new place
           // after it: with six ticks to a row, an eighth of a second later. Here the new
           // place's first row is the one played at this tick, so a jingle is heard at once.
           position_ = static_cast<u16>(place);
