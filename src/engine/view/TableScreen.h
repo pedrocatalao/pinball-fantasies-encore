@@ -7,6 +7,7 @@
 // For the pictures drawn again at high resolution (gfx/HdLayer.h) it also says, dot by dot,
 // which dot of the playfield's picture each is and how lit, and where the flippers and the
 // ball are, as pictures to be turned and placed.
+#include "engine/Values.h"
 #include "engine/data/BallSprite.h"
 #include "engine/data/TableData.h"
 #include "engine/table/Engine.h"
@@ -25,6 +26,8 @@ class TableScreen {
   static constexpr int kWidth = 320;
   static constexpr int kDisplayRows = 33;
   static constexpr int kDisplayGap = 2;  // its first rows, always black: the dots begin below them
+  /// How the lamps are shown (View::lamps).
+  static constexpr int kLampsAsGame = 0, kLampsLit = 1, kLampsOut = 2;
 
   TableScreen(const std::filesystem::path& prg, int table);
   TableScreen(Bytes prg, int table);

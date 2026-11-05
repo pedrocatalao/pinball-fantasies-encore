@@ -18,13 +18,18 @@ constexpr int kSectionBreak = 50;
 // The video memory layout the displacements are expressed in.
 constexpr int kVramPitch = 84;
 constexpr int kPlanes = 4;
-
+// The instruction: its opcode, and the two ModR/M bytes ([si+disp8], [si+disp16]).
+constexpr u8 kMovByte = 0xC6, kSiDisp8 = 0x44, kSiDisp16 = 0x84;
+// Where in it the displacement begins, and where the colour is after either.
+constexpr std::size_t kDisplacementAt = 2, kColourAfterDisp8 = 3, kColourAfterDisp16 = 4;
+// The longest a write is: the bytes to look at past one's start.
+// A run shorter than this is not the ball (it has 15 rows of up to 15 dots).
 }  // namespace
 
 BallSprite BallSprite::decode(ByteView code) {
   std::vector<std::size_t> writes;
-  for (std::size_t i = 0; i + 6 < code.size(); ++i)
-    if (code[i] == 0xC6 && (code[i + 1] == 0x44 || code[i + 1] == 0x84)) writes.push_back(i);
+  for (std::size_t i = 0; i + 6u < code.size(); ++i)
+    if (code[i] == kMovByte && (code[i + 1] == kSiDisp8 || code[i + 1] == kSiDisp16)) writes.push_back(i);
   if (writes.empty()) return {};
 
   std::size_t bestStart = 0, bestCount = 0, start = 0;
@@ -34,7 +39,7 @@ BallSprite BallSprite::decode(ByteView code) {
     if (i - start > bestCount) { bestCount = i - start; bestStart = start; }
     start = i;
   }
-  if (bestCount < 64) return {};
+  if (bestCount < 64u) return {};
 
   std::map<std::pair<int, int>, u8> found;
   int plane = 0;
@@ -44,12 +49,12 @@ BallSprite BallSprite::decode(ByteView code) {
     if (plane >= kPlanes) break;
     int displacement = 0;
     u8 colour = 0;
-    if (code[at + 1] == 0x44) {
-      displacement = code[at + 2];
-      colour = code[at + 3];
+    if (code[at + 1] == kSiDisp8) {
+      displacement = code[at + kDisplacementAt];
+      colour = code[at + kColourAfterDisp8];
     } else {
-      displacement = rd16le(code, at + 2);
-      colour = code[at + 4];
+      displacement = rd16le(code, at + kDisplacementAt);
+      colour = code[at + kColourAfterDisp16];
     }
     const int x = (displacement % kVramPitch) * kPlanes + plane;
     const int y = displacement / kVramPitch;

@@ -5,6 +5,34 @@
 namespace oracle {
 namespace {
 
+/// The eight arithmetic operations, as the instructions number them (bits 3 to 5 of the
+/// opcode in 00 to 3f; the ModR/M byte's middle field after 80 to 83).
+constexpr int kAdd = 0, kOr = 1, kAdc = 2, kSbb = 3, kAnd = 4, kSub = 5, kXor = 6, kCmp = 7;
+/// The six forms each of those comes in (the opcode's low three bits): memory or a register
+/// with a register, a register with memory or a register, the accumulator with a number (5, a
+/// word, is the switch's default).
+constexpr int kRmReg8 = 0, kRmReg16 = 1, kRegRm8 = 2, kRegRm16 = 3, kAccImm8 = 4;
+/// The eight shifts and rotations (the ModR/M byte's middle field after c0, c1, d0 to d3); the
+/// last, 7 (sar), is the switch's default.
+constexpr int kRol = 0, kRor = 1, kRcl = 2, kRcr = 3, kShl = 4, kShr = 5, kSal = 6;
+/// After f6 and f7 (1 is a second test; 7, idiv, is the switch's default).
+constexpr int kTest = 0, kTest1 = 1, kNot = 2, kNeg = 3, kMul = 4, kImul = 5, kDiv = 6;
+/// After fe (the first two only) and ff.
+constexpr int kIncRm = 0, kDecRm = 1, kCallRm = 2, kCallFarRm = 3, kJmpRm = 4, kJmpFarRm = 5, kPushRm = 6;
+/// What a conditional jump tests, from bits 1 to 3 of its opcode (7, less or equal, is the
+/// switch's default); bit 0 turns it round.
+constexpr int kOverflow = 0, kBelow = 1, kZero = 2, kBelowOrZero = 3, kSign = 4, kParity = 5, kLess = 6;
+constexpr int kConditionNot = 1;
+/// The ModR/M byte's top two bits: memory with no displacement, a byte's, a word's; or a register.
+constexpr int kModNoDisp = 0, kModDisp8 = 1, kModDisp16 = 2, kModReg = 3;
+/// Its low three, for memory: the registers the address is made of (with a mod of 0, kRmBp is
+/// a word that follows instead).
+constexpr int kRmBxSi = 0, kRmBxDi = 1, kRmBpSi = 2, kRmBpDi = 3, kRmSi = 4, kRmDi = 5, kRmBp = 6;
+/// Below this segment are the vectors and the BIOS's notes, where no program's code is.
+constexpr int kLowestCodeSegment = 0x50;
+/// The breakpoint's interrupt (int3).
+constexpr u8 kBreakpoint = 3;
+
 bool parity(u8 v) {
   v ^= v >> 4;
   v ^= v >> 2;
@@ -40,7 +68,7 @@ void Cpu::bad(u8 opcode) {
 Cpu::Operand Cpu::modrm(u8 m) {
   Operand o;
   const int mod = m >> 6, rm = m & 7;
-  if (mod == 3) {
+  if (mod == kModReg) {
     o.isReg = true;
     o.reg = rm;
     return o;
@@ -48,20 +76,20 @@ Cpu::Operand Cpu::modrm(u8 m) {
   u16 off = 0;
   Seg seg = DS;
   switch (rm) {
-    case 0: off = static_cast<u16>(r[BX] + r[SI]); break;
-    case 1: off = static_cast<u16>(r[BX] + r[DI]); break;
-    case 2: off = static_cast<u16>(r[BP] + r[SI]); seg = SS; break;
-    case 3: off = static_cast<u16>(r[BP] + r[DI]); seg = SS; break;
-    case 4: off = r[SI]; break;
-    case 5: off = r[DI]; break;
-    case 6:
-      if (mod == 0) off = fetch16();
+    case kRmBxSi: off = static_cast<u16>(r[BX] + r[SI]); break;
+    case kRmBxDi: off = static_cast<u16>(r[BX] + r[DI]); break;
+    case kRmBpSi: off = static_cast<u16>(r[BP] + r[SI]); seg = SS; break;
+    case kRmBpDi: off = static_cast<u16>(r[BP] + r[DI]); seg = SS; break;
+    case kRmSi: off = r[SI]; break;
+    case kRmDi: off = r[DI]; break;
+    case kRmBp:
+      if (mod == kModNoDisp) off = fetch16();
       else { off = r[BP]; seg = SS; }
       break;
     default: off = r[BX]; break;
   }
-  if (mod == 1) off = static_cast<u16>(off + static_cast<i8>(fetch8()));
-  else if (mod == 2) off = static_cast<u16>(off + fetch16());
+  if (mod == kModDisp8) off = static_cast<u16>(off + static_cast<i8>(fetch8()));
+  else if (mod == kModDisp16) off = static_cast<u16>(off + fetch16());
   o.seg = dataSeg(seg);
   o.off = off;
   return o;
@@ -86,28 +114,28 @@ void Cpu::setSzp16(u16 v) {
   setFlag(PF, parity(static_cast<u8>(v)));
 }
 
-// op: 0 add, 1 or, 2 adc, 3 sbb, 4 and, 5 sub, 6 xor, 7 cmp
+// op: kAdd to kCmp
 u8 Cpu::alu8(int op, u8 a, u8 b) {
   u32 res = 0;
   const u32 c = flag(CF) ? 1 : 0;
   switch (op) {
-    case 0: res = u32{a} + b; break;
-    case 2: res = u32{a} + b + c; break;
-    case 3: res = u32{a} - b - c; break;
-    case 5: case 7: res = u32{a} - b; break;
-    case 1: res = a | b; break;
-    case 4: res = a & b; break;
+    case kAdd: res = u32{a} + b; break;
+    case kAdc: res = u32{a} + b + c; break;
+    case kSbb: res = u32{a} - b - c; break;
+    case kSub: case kCmp: res = u32{a} - b; break;
+    case kOr: res = a | b; break;
+    case kAnd: res = a & b; break;
     default: res = a ^ b; break;
   }
   const u8 v = static_cast<u8>(res);
-  if (op == 1 || op == 4 || op == 6) {
+  if (op == kOr || op == kAnd || op == kXor) {
     setFlag(CF, false);
     setFlag(OF, false);
     setFlag(AF, false);
   } else {
     setFlag(CF, res & 0x100);
     setFlag(AF, (a ^ b ^ v) & 0x10);
-    const bool sub = op == 3 || op == 5 || op == 7;
+    const bool sub = op == kSbb || op == kSub || op == kCmp;
     setFlag(OF, sub ? ((a ^ b) & (a ^ v) & 0x80) : (~(a ^ b) & (a ^ v) & 0x80));
   }
   setSzp8(v);
@@ -118,23 +146,23 @@ u16 Cpu::alu16(int op, u16 a, u16 b) {
   u32 res = 0;
   const u32 c = flag(CF) ? 1 : 0;
   switch (op) {
-    case 0: res = u32{a} + b; break;
-    case 2: res = u32{a} + b + c; break;
-    case 3: res = u32{a} - b - c; break;
-    case 5: case 7: res = u32{a} - b; break;
-    case 1: res = a | b; break;
-    case 4: res = a & b; break;
+    case kAdd: res = u32{a} + b; break;
+    case kAdc: res = u32{a} + b + c; break;
+    case kSbb: res = u32{a} - b - c; break;
+    case kSub: case kCmp: res = u32{a} - b; break;
+    case kOr: res = a | b; break;
+    case kAnd: res = a & b; break;
     default: res = a ^ b; break;
   }
   const u16 v = static_cast<u16>(res);
-  if (op == 1 || op == 4 || op == 6) {
+  if (op == kOr || op == kAnd || op == kXor) {
     setFlag(CF, false);
     setFlag(OF, false);
     setFlag(AF, false);
   } else {
     setFlag(CF, res & 0x10000);
     setFlag(AF, (a ^ b ^ v) & 0x10);
-    const bool sub = op == 3 || op == 5 || op == 7;
+    const bool sub = op == kSbb || op == kSub || op == kCmp;
     setFlag(OF, sub ? ((a ^ b) & (a ^ v) & 0x8000) : (~(a ^ b) & (a ^ v) & 0x8000));
   }
   setSzp16(v);
@@ -143,19 +171,18 @@ u16 Cpu::alu16(int op, u16 a, u16 b) {
 
 u8 Cpu::inc8(u8 v, bool dec) {
   const bool c = flag(CF);
-  const u8 res = alu8(dec ? 5 : 0, v, 1);
+  const u8 res = alu8(dec ? kSub : kAdd, v, 1);
   setFlag(CF, c);
   return res;
 }
 u16 Cpu::inc16(u16 v, bool dec) {
   const bool c = flag(CF);
-  const u16 res = alu16(dec ? 5 : 0, v, 1);
+  const u16 res = alu16(dec ? kSub : kAdd, v, 1);
   setFlag(CF, c);
   return res;
 }
 
-// op: 0 rol, 1 ror, 2 rcl, 3 rcr, 4 shl, 5 shr, 6 sal, 7 sar. The 80186 takes the count
-// modulo 32.
+// op: kRol to 7 (sar). The 80186 takes the count modulo 32.
 u8 Cpu::shift8(int op, u8 v, int count) {
   count &= 31;
   if (!count) return v;
@@ -163,22 +190,22 @@ u8 Cpu::shift8(int op, u8 v, int count) {
   for (int i = 0; i < count; ++i) {
     const u8 before = v;
     switch (op) {
-      case 0: c = v & 0x80; v = static_cast<u8>((v << 1) | (c ? 1 : 0)); break;
-      case 1: c = v & 1; v = static_cast<u8>((v >> 1) | (c ? 0x80 : 0)); break;
-      case 2: { const bool n = v & 0x80; v = static_cast<u8>((v << 1) | (c ? 1 : 0)); c = n; break; }
-      case 3: { const bool n = v & 1; v = static_cast<u8>((v >> 1) | (c ? 0x80 : 0)); c = n; break; }
-      case 4: case 6: c = v & 0x80; v = static_cast<u8>(v << 1); break;
-      case 5: c = v & 1; v = static_cast<u8>(v >> 1); break;
-      default: c = v & 1; v = static_cast<u8>((v >> 1) | (v & 0x80)); break;
+      case kRol: c = v & 0x80; v = static_cast<u8>((v << 1) | (c ? 1 : 0)); break;
+      case kRor: c = v & 1; v = static_cast<u8>((v >> 1) | (c ? 0x80 : 0)); break;
+      case kRcl: { const bool n = v & 0x80; v = static_cast<u8>((v << 1) | (c ? 1 : 0)); c = n; break; }
+      case kRcr: { const bool n = v & 1; v = static_cast<u8>((v >> 1) | (c ? 0x80 : 0)); c = n; break; }
+      case kShl: case kSal: c = v & 0x80; v = static_cast<u8>(v << 1); break;
+      case kShr: c = v & 1; v = static_cast<u8>(v >> 1); break;
+      default: c = v & 1; v = static_cast<u8>((v >> 1) | (v & 0x80)); break;  // sar: the sign bit kept
     }
     // The overflow flag is defined for a count of one; this leaves it as the last step's.
-    if (op == 0 || op == 2 || op == 4 || op == 6) setFlag(OF, ((v & 0x80) != 0) != c);
-    else if (op == 1 || op == 3) setFlag(OF, ((v ^ (v << 1)) & 0x80) != 0);
-    else if (op == 5) setFlag(OF, before & 0x80);
+    if (op == kRol || op == kRcl || op == kShl || op == kSal) setFlag(OF, ((v & 0x80) != 0) != c);
+    else if (op == kRor || op == kRcr) setFlag(OF, ((v ^ (v << 1)) & 0x80) != 0);
+    else if (op == kShr) setFlag(OF, before & 0x80);
     else setFlag(OF, false);
   }
   setFlag(CF, c);
-  if (op >= 4) setSzp8(v);
+  if (op >= kShl) setSzp8(v);
   return v;
 }
 
@@ -189,37 +216,37 @@ u16 Cpu::shift16(int op, u16 v, int count) {
   for (int i = 0; i < count; ++i) {
     const u16 before = v;
     switch (op) {
-      case 0: c = v & 0x8000; v = static_cast<u16>((v << 1) | (c ? 1 : 0)); break;
-      case 1: c = v & 1; v = static_cast<u16>((v >> 1) | (c ? 0x8000 : 0)); break;
-      case 2: { const bool n = v & 0x8000; v = static_cast<u16>((v << 1) | (c ? 1 : 0)); c = n; break; }
-      case 3: { const bool n = v & 1; v = static_cast<u16>((v >> 1) | (c ? 0x8000 : 0)); c = n; break; }
-      case 4: case 6: c = v & 0x8000; v = static_cast<u16>(v << 1); break;
-      case 5: c = v & 1; v = static_cast<u16>(v >> 1); break;
-      default: c = v & 1; v = static_cast<u16>((v >> 1) | (v & 0x8000)); break;
+      case kRol: c = v & 0x8000; v = static_cast<u16>((v << 1) | (c ? 1 : 0)); break;
+      case kRor: c = v & 1; v = static_cast<u16>((v >> 1) | (c ? 0x8000 : 0)); break;
+      case kRcl: { const bool n = v & 0x8000; v = static_cast<u16>((v << 1) | (c ? 1 : 0)); c = n; break; }
+      case kRcr: { const bool n = v & 1; v = static_cast<u16>((v >> 1) | (c ? 0x8000 : 0)); c = n; break; }
+      case kShl: case kSal: c = v & 0x8000; v = static_cast<u16>(v << 1); break;
+      case kShr: c = v & 1; v = static_cast<u16>(v >> 1); break;
+      default: c = v & 1; v = static_cast<u16>((v >> 1) | (v & 0x8000)); break;  // sar: the sign bit kept
     }
-    if (op == 0 || op == 2 || op == 4 || op == 6) setFlag(OF, ((v & 0x8000) != 0) != c);
-    else if (op == 1 || op == 3) setFlag(OF, ((v ^ (v << 1)) & 0x8000) != 0);
-    else if (op == 5) setFlag(OF, before & 0x8000);
+    if (op == kRol || op == kRcl || op == kShl || op == kSal) setFlag(OF, ((v & 0x8000) != 0) != c);
+    else if (op == kRor || op == kRcr) setFlag(OF, ((v ^ (v << 1)) & 0x8000) != 0);
+    else if (op == kShr) setFlag(OF, before & 0x8000);
     else setFlag(OF, false);
   }
   setFlag(CF, c);
-  if (op >= 4) setSzp16(v);
+  if (op >= kShl) setSzp16(v);
   return v;
 }
 
 bool Cpu::condition(int cc) const {
   bool v = false;
   switch (cc >> 1) {
-    case 0: v = flag(OF); break;
-    case 1: v = flag(CF); break;
-    case 2: v = flag(ZF); break;
-    case 3: v = flag(CF) || flag(ZF); break;
-    case 4: v = flag(SF); break;
-    case 5: v = flag(PF); break;
-    case 6: v = flag(SF) != flag(OF); break;
-    default: v = flag(ZF) || flag(SF) != flag(OF); break;
+    case kOverflow: v = flag(OF); break;
+    case kBelow: v = flag(CF); break;
+    case kZero: v = flag(ZF); break;
+    case kBelowOrZero: v = flag(CF) || flag(ZF); break;
+    case kSign: v = flag(SF); break;
+    case kParity: v = flag(PF); break;
+    case kLess: v = flag(SF) != flag(OF); break;
+    default: v = flag(ZF) || flag(SF) != flag(OF); break;  // less or equal
   }
-  return (cc & 1) ? !v : v;
+  return (cc & kConditionNot) ? !v : v;
 }
 
 void Cpu::string(u8 opcode) {
@@ -228,39 +255,39 @@ void Cpu::string(u8 opcode) {
   const u16 src = dataSeg(DS);
   auto once = [&] {
     switch (opcode & 0xfe) {
-      case 0xa4:  // movs
+      case op::movsb:
         if (word) write16(s[ES], r[DI], read16(src, r[SI]));
         else write8(s[ES], r[DI], read8(src, r[SI]));
         r[SI] = static_cast<u16>(r[SI] + delta);
         r[DI] = static_cast<u16>(r[DI] + delta);
         break;
-      case 0xa6:  // cmps
-        if (word) alu16(7, read16(src, r[SI]), read16(s[ES], r[DI]));
-        else alu8(7, read8(src, r[SI]), read8(s[ES], r[DI]));
+      case op::cmpsb:
+        if (word) alu16(kCmp, read16(src, r[SI]), read16(s[ES], r[DI]));
+        else alu8(kCmp, read8(src, r[SI]), read8(s[ES], r[DI]));
         r[SI] = static_cast<u16>(r[SI] + delta);
         r[DI] = static_cast<u16>(r[DI] + delta);
         break;
-      case 0xaa:  // stos
+      case op::stosb:
         if (word) write16(s[ES], r[DI], r[AX]);
         else write8(s[ES], r[DI], lo(AX));
         r[DI] = static_cast<u16>(r[DI] + delta);
         break;
-      case 0xac:  // lods
+      case op::lodsb:
         if (word) r[AX] = read16(src, r[SI]);
         else setLo(AX, read8(src, r[SI]));
         r[SI] = static_cast<u16>(r[SI] + delta);
         break;
-      case 0xae:  // scas
-        if (word) alu16(7, r[AX], read16(s[ES], r[DI]));
-        else alu8(7, lo(AX), read8(s[ES], r[DI]));
+      case op::scasb:
+        if (word) alu16(kCmp, r[AX], read16(s[ES], r[DI]));
+        else alu8(kCmp, lo(AX), read8(s[ES], r[DI]));
         r[DI] = static_cast<u16>(r[DI] + delta);
         break;
-      case 0x6c:  // ins
+      case op::insb:
         write8(s[ES], r[DI], bus_.portIn(r[DX]));
         if (word) write8(s[ES], static_cast<u16>(r[DI] + 1), bus_.portIn(static_cast<u16>(r[DX] + 1)));
         r[DI] = static_cast<u16>(r[DI] + delta);
         break;
-      default:  // 0x6e outs
+      default:  // op::outsb
         bus_.portOut(r[DX], read8(src, r[SI]));
         if (word) bus_.portOut(static_cast<u16>(r[DX] + 1), read8(src, static_cast<u16>(r[SI] + 1)));
         r[SI] = static_cast<u16>(r[SI] + delta);
@@ -271,11 +298,11 @@ void Cpu::string(u8 opcode) {
     once();
     return;
   }
-  const bool compares = (opcode & 0xfe) == 0xa6 || (opcode & 0xfe) == 0xae;
+  const bool compares = (opcode & 0xfe) == op::cmpsb || (opcode & 0xfe) == op::scasb;
   while (r[CX]) {
     once();
     --r[CX];
-    if (compares && flag(ZF) != (rep_ == 1)) break;
+    if (compares && flag(ZF) != (rep_ == kRepe)) break;
   }
 }
 
@@ -331,7 +358,7 @@ u16 Cpu::callInterrupt(u16 seg, u16 off, std::uint64_t limit) { return callRouti
 
 void Cpu::step() {
   startIp_ = ip;
-  if (s[CS] < 0x50) throw CpuError("the program went astray, to " + where());
+  if (s[CS] < kLowestCodeSegment) throw CpuError("the program went astray, to " + where());
   if (!watch.empty()) {
     if (auto it = watch.find((u32{s[CS]} << 16) | ip); it != watch.end()) {
       pause = false;
@@ -342,44 +369,44 @@ void Cpu::step() {
   if (coverage && s[CS] == coverageSegment) (*coverage)[ip] = true;
   history_[historyAt_] = (u32{s[CS]} << 16) | ip;
   historyAt_ = (historyAt_ + 1) % kHistory;
-  segOverride_ = -1;
-  rep_ = 0;
+  segOverride_ = kNoOverride;
+  rep_ = kNoRep;
   ++executed;
   u8 op = fetch8();
   for (;;) {  // prefixes
-    if (op == 0x26) segOverride_ = ES;
-    else if (op == 0x2e) segOverride_ = CS;
-    else if (op == 0x36) segOverride_ = SS;
-    else if (op == 0x3e) segOverride_ = DS;
-    else if (op == 0xf3) rep_ = 1;
-    else if (op == 0xf2) rep_ = 2;
-    else if (op != 0xf0) break;  // lock
+    if (op == op::segEs) segOverride_ = ES;
+    else if (op == op::segCs) segOverride_ = CS;
+    else if (op == op::segSs) segOverride_ = SS;
+    else if (op == op::segDs) segOverride_ = DS;
+    else if (op == op::rep) rep_ = kRepe;
+    else if (op == op::repne) rep_ = kRepne;
+    else if (op != op::lock) break;
     op = fetch8();
   }
 
   // The eight arithmetic operations in their six forms each.
-  if (op < 0x40 && (op & 7) < 6) {
+  if (op < op::inc && (op & 7) < 6) {
     const int alu = op >> 3;
     switch (op & 7) {
-      case 0: { const u8 m = fetch8(); const Operand o = modrm(m); const u8 v = alu8(alu, get8(o), reg8((m >> 3) & 7)); if (alu != 7) set8(o, v); break; }
-      case 1: { const u8 m = fetch8(); const Operand o = modrm(m); const u16 v = alu16(alu, get16(o), r[(m >> 3) & 7]); if (alu != 7) set16(o, v); break; }
-      case 2: { const u8 m = fetch8(); const Operand o = modrm(m); const int g = (m >> 3) & 7; const u8 v = alu8(alu, reg8(g), get8(o)); if (alu != 7) setReg8(g, v); break; }
-      case 3: { const u8 m = fetch8(); const Operand o = modrm(m); const int g = (m >> 3) & 7; const u16 v = alu16(alu, r[g], get16(o)); if (alu != 7) r[g] = v; break; }
-      case 4: { const u8 v = alu8(alu, lo(AX), fetch8()); if (alu != 7) setLo(AX, v); break; }
-      default: { const u16 v = alu16(alu, r[AX], fetch16()); if (alu != 7) r[AX] = v; break; }
+      case kRmReg8: { const u8 m = fetch8(); const Operand o = modrm(m); const u8 v = alu8(alu, get8(o), reg8((m >> 3) & 7)); if (alu != kCmp) set8(o, v); break; }
+      case kRmReg16: { const u8 m = fetch8(); const Operand o = modrm(m); const u16 v = alu16(alu, get16(o), r[(m >> 3) & 7]); if (alu != kCmp) set16(o, v); break; }
+      case kRegRm8: { const u8 m = fetch8(); const Operand o = modrm(m); const int g = (m >> 3) & 7; const u8 v = alu8(alu, reg8(g), get8(o)); if (alu != kCmp) setReg8(g, v); break; }
+      case kRegRm16: { const u8 m = fetch8(); const Operand o = modrm(m); const int g = (m >> 3) & 7; const u16 v = alu16(alu, r[g], get16(o)); if (alu != kCmp) r[g] = v; break; }
+      case kAccImm8: { const u8 v = alu8(alu, lo(AX), fetch8()); if (alu != kCmp) setLo(AX, v); break; }
+      default: { const u16 v = alu16(alu, r[AX], fetch16()); if (alu != kCmp) r[AX] = v; break; }  // the accumulator with a word
     }
     return;
   }
 
   switch (op) {
-    case 0x06: push(s[ES]); break;
-    case 0x07: s[ES] = pop(); break;
-    case 0x0e: push(s[CS]); break;
-    case 0x16: push(s[SS]); break;
-    case 0x17: s[SS] = pop(); break;
-    case 0x1e: push(s[DS]); break;
-    case 0x1f: s[DS] = pop(); break;
-    case 0x27: {  // daa
+    case op::pushEs: push(s[ES]); break;
+    case op::popEs: s[ES] = pop(); break;
+    case op::pushCs: push(s[CS]); break;
+    case op::pushSs: push(s[SS]); break;
+    case op::popSs: s[SS] = pop(); break;
+    case op::pushDs: push(s[DS]); break;
+    case op::popDs: s[DS] = pop(); break;
+    case op::daa: {
       u8 al = lo(AX);
       const u8 old = al;
       const bool oldC = flag(CF);
@@ -389,7 +416,7 @@ void Cpu::step() {
       setSzp8(al);
       break;
     }
-    case 0x2f: {  // das
+    case op::das: {
       u8 al = lo(AX);
       const u8 old = al;
       const bool oldC = flag(CF);
@@ -399,7 +426,7 @@ void Cpu::step() {
       setSzp8(al);
       break;
     }
-    case 0x37:  // aaa
+    case op::aaa:
       if ((lo(AX) & 0x0f) > 9 || flag(AF)) {
         r[AX] = static_cast<u16>(r[AX] + 0x106);
         setFlag(AF, true);
@@ -410,7 +437,7 @@ void Cpu::step() {
       }
       setLo(AX, lo(AX) & 0x0f);
       break;
-    case 0x3f:  // aas
+    case op::aas:
       if ((lo(AX) & 0x0f) > 9 || flag(AF)) {
         r[AX] = static_cast<u16>(r[AX] - 6);
         setHi(AX, static_cast<u8>(hi(AX) - 1));
@@ -422,37 +449,41 @@ void Cpu::step() {
       }
       setLo(AX, lo(AX) & 0x0f);
       break;
-    case 0x40: case 0x41: case 0x42: case 0x43: case 0x44: case 0x45: case 0x46: case 0x47:
+    case op::inc + AX: case op::inc + CX: case op::inc + DX: case op::inc + BX:
+    case op::inc + SP: case op::inc + BP: case op::inc + SI: case op::inc + DI:
       r[op & 7] = inc16(r[op & 7], false);
       break;
-    case 0x48: case 0x49: case 0x4a: case 0x4b: case 0x4c: case 0x4d: case 0x4e: case 0x4f:
+    case op::dec + AX: case op::dec + CX: case op::dec + DX: case op::dec + BX:
+    case op::dec + SP: case op::dec + BP: case op::dec + SI: case op::dec + DI:
       r[op & 7] = inc16(r[op & 7], true);
       break;
-    case 0x50: case 0x51: case 0x52: case 0x53: case 0x55: case 0x56: case 0x57:
+    case op::push + AX: case op::push + CX: case op::push + DX: case op::push + BX:
+    case op::push + BP: case op::push + SI: case op::push + DI:
       push(r[op & 7]);
       break;
-    case 0x54: push(r[SP]); break;  // the 80186 and later push the value before the push
-    case 0x58: case 0x59: case 0x5a: case 0x5b: case 0x5c: case 0x5d: case 0x5e: case 0x5f:
+    case op::push + SP: push(r[SP]); break;  // the 80186 and later push the value before the push
+    case op::pop + AX: case op::pop + CX: case op::pop + DX: case op::pop + BX:
+    case op::pop + SP: case op::pop + BP: case op::pop + SI: case op::pop + DI:
       r[op & 7] = pop();
       break;
-    case 0x60: {  // pusha
+    case op::pusha: {
       const u16 sp = r[SP];
       for (int i = 0; i < 8; ++i) push(i == SP ? sp : r[i]);
       break;
     }
-    case 0x61:  // popa
+    case op::popa:
       for (int i = 7; i >= 0; --i) {
         const u16 v = pop();
         if (i != SP) r[i] = v;
       }
       break;
-    case 0x68: push(fetch16()); break;
-    case 0x6a: push(static_cast<u16>(static_cast<i8>(fetch8()))); break;
-    case 0x69: case 0x6b: {  // imul reg, r/m, immediate
+    case op::pushImm16: push(fetch16()); break;
+    case op::pushImm8: push(static_cast<u16>(static_cast<i8>(fetch8()))); break;
+    case op::imulImm16: case op::imulImm8: {  // imul reg, r/m, immediate
       const u8 m = fetch8();
       const Operand o = modrm(m);
       const i32 a = static_cast<i16>(get16(o));
-      const i32 b = op == 0x69 ? static_cast<i16>(fetch16()) : static_cast<i8>(fetch8());
+      const i32 b = op == op::imulImm16 ? static_cast<i16>(fetch16()) : static_cast<i8>(fetch8());
       const i32 p = a * b;
       r[(m >> 3) & 7] = static_cast<u16>(p);
       const bool over = p != static_cast<i16>(p);
@@ -460,53 +491,54 @@ void Cpu::step() {
       setFlag(OF, over);
       break;
     }
-    case 0x6c: case 0x6d: case 0x6e: case 0x6f: string(op); break;
-    case 0x70: case 0x71: case 0x72: case 0x73: case 0x74: case 0x75: case 0x76: case 0x77:
-    case 0x78: case 0x79: case 0x7a: case 0x7b: case 0x7c: case 0x7d: case 0x7e: case 0x7f: {
+    case op::insb: case op::insw: case op::outsb: case op::outsw: string(op); break;
+    case op::jo: case op::jno: case op::jb: case op::jnb: case op::jz: case op::jnz: case op::jbe: case op::ja:
+    case op::js: case op::jns: case op::jp: case op::jnp: case op::jl: case op::jnl: case op::jle: case op::jg: {
       const i8 d = static_cast<i8>(fetch8());
       if (condition(op & 15)) ip = static_cast<u16>(ip + d);
       break;
     }
-    case 0x80: case 0x82: {
+    case op::aluRm8Imm: case op::aluRm8Imm82: {
       const u8 m = fetch8();
       const Operand o = modrm(m);
       const int alu = (m >> 3) & 7;
       const u8 v = alu8(alu, get8(o), fetch8());
-      if (alu != 7) set8(o, v);
+      if (alu != kCmp) set8(o, v);
       break;
     }
-    case 0x81: case 0x83: {
+    case op::aluRm16Imm: case op::aluRm16Imm8: {
       const u8 m = fetch8();
       const Operand o = modrm(m);
       const int alu = (m >> 3) & 7;
       const u16 a = get16(o);
-      const u16 b = op == 0x81 ? fetch16() : static_cast<u16>(static_cast<i8>(fetch8()));
+      const u16 b = op == op::aluRm16Imm ? fetch16() : static_cast<u16>(static_cast<i8>(fetch8()));
       const u16 v = alu16(alu, a, b);
-      if (alu != 7) set16(o, v);
+      if (alu != kCmp) set16(o, v);
       break;
     }
-    case 0x84: { const u8 m = fetch8(); const Operand o = modrm(m); alu8(4, get8(o), reg8((m >> 3) & 7)); break; }
-    case 0x85: { const u8 m = fetch8(); const Operand o = modrm(m); alu16(4, get16(o), r[(m >> 3) & 7]); break; }
-    case 0x86: { const u8 m = fetch8(); const Operand o = modrm(m); const int g = (m >> 3) & 7; const u8 v = get8(o); set8(o, reg8(g)); setReg8(g, v); break; }
-    case 0x87: { const u8 m = fetch8(); const Operand o = modrm(m); const int g = (m >> 3) & 7; const u16 v = get16(o); set16(o, r[g]); r[g] = v; break; }
-    case 0x88: { const u8 m = fetch8(); const Operand o = modrm(m); set8(o, reg8((m >> 3) & 7)); break; }
-    case 0x89: { const u8 m = fetch8(); const Operand o = modrm(m); set16(o, r[(m >> 3) & 7]); break; }
-    case 0x8a: { const u8 m = fetch8(); const Operand o = modrm(m); setReg8((m >> 3) & 7, get8(o)); break; }
-    case 0x8b: { const u8 m = fetch8(); const Operand o = modrm(m); r[(m >> 3) & 7] = get16(o); break; }
-    case 0x8c: { const u8 m = fetch8(); const Operand o = modrm(m); set16(o, s[(m >> 3) & 3]); break; }
-    case 0x8d: { const u8 m = fetch8(); const Operand o = modrm(m); r[(m >> 3) & 7] = o.off; break; }
-    case 0x8e: { const u8 m = fetch8(); const Operand o = modrm(m); s[(m >> 3) & 3] = get16(o); break; }
-    case 0x8f: { const u8 m = fetch8(); const u16 v = pop(); const Operand o = modrm(m); set16(o, v); break; }
-    case 0x90: break;
-    case 0x91: case 0x92: case 0x93: case 0x94: case 0x95: case 0x96: case 0x97: {
+    case op::testRm8: { const u8 m = fetch8(); const Operand o = modrm(m); alu8(kAnd, get8(o), reg8((m >> 3) & 7)); break; }
+    case op::testRm16: { const u8 m = fetch8(); const Operand o = modrm(m); alu16(kAnd, get16(o), r[(m >> 3) & 7]); break; }
+    case op::xchgRm8: { const u8 m = fetch8(); const Operand o = modrm(m); const int g = (m >> 3) & 7; const u8 v = get8(o); set8(o, reg8(g)); setReg8(g, v); break; }
+    case op::xchgRm16: { const u8 m = fetch8(); const Operand o = modrm(m); const int g = (m >> 3) & 7; const u16 v = get16(o); set16(o, r[g]); r[g] = v; break; }
+    case op::movRm8Reg: { const u8 m = fetch8(); const Operand o = modrm(m); set8(o, reg8((m >> 3) & 7)); break; }
+    case op::movRm16Reg: { const u8 m = fetch8(); const Operand o = modrm(m); set16(o, r[(m >> 3) & 7]); break; }
+    case op::movReg8Rm: { const u8 m = fetch8(); const Operand o = modrm(m); setReg8((m >> 3) & 7, get8(o)); break; }
+    case op::movReg16Rm: { const u8 m = fetch8(); const Operand o = modrm(m); r[(m >> 3) & 7] = get16(o); break; }
+    case op::movRmSeg: { const u8 m = fetch8(); const Operand o = modrm(m); set16(o, s[(m >> 3) & 3]); break; }
+    case op::lea: { const u8 m = fetch8(); const Operand o = modrm(m); r[(m >> 3) & 7] = o.off; break; }
+    case op::movSegRm: { const u8 m = fetch8(); const Operand o = modrm(m); s[(m >> 3) & 3] = get16(o); break; }
+    case op::popRm: { const u8 m = fetch8(); const u16 v = pop(); const Operand o = modrm(m); set16(o, v); break; }
+    case op::nop: break;
+    case op::xchgAx + CX: case op::xchgAx + DX: case op::xchgAx + BX: case op::xchgAx + SP:
+    case op::xchgAx + BP: case op::xchgAx + SI: case op::xchgAx + DI: {
       const u16 v = r[AX];
       r[AX] = r[op & 7];
       r[op & 7] = v;
       break;
     }
-    case 0x98: r[AX] = static_cast<u16>(static_cast<i8>(lo(AX))); break;
-    case 0x99: r[DX] = (r[AX] & 0x8000) ? 0xffff : 0; break;
-    case 0x9a: {
+    case op::cbw: r[AX] = static_cast<u16>(static_cast<i8>(lo(AX))); break;
+    case op::cwd: r[DX] = (r[AX] & 0x8000) ? 0xffff : 0; break;
+    case op::callFar: {
       const u16 off = fetch16(), seg = fetch16();
       push(s[CS]);
       push(ip);
@@ -514,53 +546,56 @@ void Cpu::step() {
       ip = off;
       break;
     }
-    case 0x9b: break;  // wait
-    case 0x9c: push(flags); break;
-    case 0x9d: flags = static_cast<u16>((pop() & 0x0fd5) | 2); break;
-    case 0x9e: flags = static_cast<u16>((flags & 0xff00) | (hi(AX) & 0xd5) | 2); break;
-    case 0x9f: setHi(AX, static_cast<u8>(flags)); break;
-    case 0xa0: setLo(AX, read8(dataSeg(DS), fetch16())); break;
-    case 0xa1: r[AX] = read16(dataSeg(DS), fetch16()); break;
-    case 0xa2: write8(dataSeg(DS), fetch16(), lo(AX)); break;
-    case 0xa3: write16(dataSeg(DS), fetch16(), r[AX]); break;
-    case 0xa4: case 0xa5: case 0xa6: case 0xa7: case 0xaa: case 0xab: case 0xac: case 0xad: case 0xae: case 0xaf:
+    case op::wait: break;
+    case op::pushf: push(flags); break;
+    case op::popf: flags = static_cast<u16>((pop() & 0x0fd5) | 2); break;
+    case op::sahf: flags = static_cast<u16>((flags & 0xff00) | (hi(AX) & 0xd5) | 2); break;
+    case op::lahf: setHi(AX, static_cast<u8>(flags)); break;
+    case op::movAlMem: setLo(AX, read8(dataSeg(DS), fetch16())); break;
+    case op::movAxMem: r[AX] = read16(dataSeg(DS), fetch16()); break;
+    case op::movMemAl: write8(dataSeg(DS), fetch16(), lo(AX)); break;
+    case op::movMemAx: write16(dataSeg(DS), fetch16(), r[AX]); break;
+    case op::movsb: case op::movsw: case op::cmpsb: case op::cmpsw: case op::stosb: case op::stosw: case op::lodsb:
+    case op::lodsw: case op::scasb: case op::scasw:
       string(op);
       break;
-    case 0xa8: alu8(4, lo(AX), fetch8()); break;
-    case 0xa9: alu16(4, r[AX], fetch16()); break;
-    case 0xb0: case 0xb1: case 0xb2: case 0xb3: case 0xb4: case 0xb5: case 0xb6: case 0xb7:
+    case op::testAlImm: alu8(kAnd, lo(AX), fetch8()); break;
+    case op::testAxImm: alu16(kAnd, r[AX], fetch16()); break;
+    case op::movReg8Imm + AL: case op::movReg8Imm + CL: case op::movReg8Imm + DL: case op::movReg8Imm + BL:
+    case op::movReg8Imm + AH: case op::movReg8Imm + CH: case op::movReg8Imm + DH: case op::movReg8Imm + BH:
       setReg8(op & 7, fetch8());
       break;
-    case 0xb8: case 0xb9: case 0xba: case 0xbb: case 0xbc: case 0xbd: case 0xbe: case 0xbf:
+    case op::movReg16Imm + AX: case op::movReg16Imm + CX: case op::movReg16Imm + DX: case op::movReg16Imm + BX:
+    case op::movReg16Imm + SP: case op::movReg16Imm + BP: case op::movReg16Imm + SI: case op::movReg16Imm + DI:
       r[op & 7] = fetch16();
       break;
-    case 0xc0: case 0xd0: case 0xd2: {
+    case op::shiftRm8Imm: case op::shiftRm8By1: case op::shiftRm8ByCl: {
       const u8 m = fetch8();
       const Operand o = modrm(m);
-      const int count = op == 0xc0 ? fetch8() : op == 0xd0 ? 1 : lo(CX);
+      const int count = op == op::shiftRm8Imm ? fetch8() : op == op::shiftRm8By1 ? 1 : lo(CX);
       set8(o, shift8((m >> 3) & 7, get8(o), count));
       break;
     }
-    case 0xc1: case 0xd1: case 0xd3: {
+    case op::shiftRm16Imm: case op::shiftRm16By1: case op::shiftRm16ByCl: {
       const u8 m = fetch8();
       const Operand o = modrm(m);
-      const int count = op == 0xc1 ? fetch8() : op == 0xd1 ? 1 : lo(CX);
+      const int count = op == op::shiftRm16Imm ? fetch8() : op == op::shiftRm16By1 ? 1 : lo(CX);
       set16(o, shift16((m >> 3) & 7, get16(o), count));
       break;
     }
-    case 0xc2: { const u16 n = fetch16(); ip = pop(); r[SP] = static_cast<u16>(r[SP] + n); break; }
-    case 0xc3: ip = pop(); break;
-    case 0xc4: case 0xc5: {  // les, lds
+    case op::retImm: { const u16 n = fetch16(); ip = pop(); r[SP] = static_cast<u16>(r[SP] + n); break; }
+    case op::ret: ip = pop(); break;
+    case op::les: case op::lds: {
       const u8 m = fetch8();
       const Operand o = modrm(m);
       if (o.isReg) bad(op);
       r[(m >> 3) & 7] = read16(o.seg, o.off);
-      s[op == 0xc4 ? ES : DS] = read16(o.seg, static_cast<u16>(o.off + 2));
+      s[op == op::les ? ES : DS] = read16(o.seg, static_cast<u16>(o.off + 2));
       break;
     }
-    case 0xc6: { const u8 m = fetch8(); const Operand o = modrm(m); set8(o, fetch8()); break; }
-    case 0xc7: { const u8 m = fetch8(); const Operand o = modrm(m); set16(o, fetch16()); break; }
-    case 0xc8: {  // enter
+    case op::movRm8Imm: { const u8 m = fetch8(); const Operand o = modrm(m); set8(o, fetch8()); break; }
+    case op::movRm16Imm: { const u8 m = fetch8(); const Operand o = modrm(m); set16(o, fetch16()); break; }
+    case op::enter: {
       const u16 size = fetch16();
       const int level = fetch8() & 31;
       push(r[BP]);
@@ -574,13 +609,13 @@ void Cpu::step() {
       r[SP] = static_cast<u16>(r[SP] - size);
       break;
     }
-    case 0xc9: r[SP] = r[BP]; r[BP] = pop(); break;
-    case 0xca: { const u16 n = fetch16(); ip = pop(); s[CS] = pop(); r[SP] = static_cast<u16>(r[SP] + n); break; }
-    case 0xcb: ip = pop(); s[CS] = pop(); break;
-    case 0xcc: if (!bus_.interrupt(3)) raise(3); break;
-    case 0xcd: { const u8 n = fetch8(); if (!bus_.interrupt(n)) raise(n); break; }
-    case 0xcf: ip = pop(); s[CS] = pop(); flags = static_cast<u16>((pop() & 0x0fd5) | 2); break;
-    case 0xd4: {  // aam
+    case op::leave: r[SP] = r[BP]; r[BP] = pop(); break;
+    case op::retfImm: { const u16 n = fetch16(); ip = pop(); s[CS] = pop(); r[SP] = static_cast<u16>(r[SP] + n); break; }
+    case op::retf: ip = pop(); s[CS] = pop(); break;
+    case op::int3: if (!bus_.interrupt(kBreakpoint)) raise(kBreakpoint); break;
+    case op::intImm: { const u8 n = fetch8(); if (!bus_.interrupt(n)) raise(n); break; }
+    case op::iret: ip = pop(); s[CS] = pop(); flags = static_cast<u16>((pop() & 0x0fd5) | 2); break;
+    case op::aam: {
       const u8 base = fetch8();
       if (!base) bad(op);
       const u8 al = lo(AX);
@@ -589,56 +624,56 @@ void Cpu::step() {
       setSzp8(lo(AX));
       break;
     }
-    case 0xd5: {  // aad
+    case op::aad: {
       const u8 base = fetch8();
       const u8 al = static_cast<u8>(lo(AX) + hi(AX) * base);
       r[AX] = al;
       setSzp8(al);
       break;
     }
-    case 0xd7: setLo(AX, read8(dataSeg(DS), static_cast<u16>(r[BX] + lo(AX)))); break;
-    case 0xe0: case 0xe1: case 0xe2: {
+    case op::xlat: setLo(AX, read8(dataSeg(DS), static_cast<u16>(r[BX] + lo(AX)))); break;
+    case op::loopne: case op::loope: case op::loop: {
       const i8 d = static_cast<i8>(fetch8());
       --r[CX];
-      if (r[CX] && (op == 0xe2 || flag(ZF) == (op == 0xe1))) ip = static_cast<u16>(ip + d);
+      if (r[CX] && (op == op::loop || flag(ZF) == (op == op::loope))) ip = static_cast<u16>(ip + d);
       break;
     }
-    case 0xe3: { const i8 d = static_cast<i8>(fetch8()); if (!r[CX]) ip = static_cast<u16>(ip + d); break; }
-    case 0xe4: setLo(AX, bus_.portIn(fetch8())); break;
-    case 0xe5: { const u16 p = fetch8(); r[AX] = static_cast<u16>(bus_.portIn(p) | (bus_.portIn(static_cast<u16>(p + 1)) << 8)); break; }
-    case 0xe6: bus_.portOut(fetch8(), lo(AX)); break;
-    case 0xe7: { const u16 p = fetch8(); bus_.portOut(p, lo(AX)); bus_.portOut(static_cast<u16>(p + 1), hi(AX)); break; }
-    case 0xe8: { const u16 d = fetch16(); push(ip); ip = static_cast<u16>(ip + d); break; }
-    case 0xe9: { const u16 d = fetch16(); ip = static_cast<u16>(ip + d); break; }
-    case 0xea: { const u16 off = fetch16(), seg = fetch16(); s[CS] = seg; ip = off; break; }
-    case 0xeb: { const i8 d = static_cast<i8>(fetch8()); ip = static_cast<u16>(ip + d); break; }
-    case 0xec: setLo(AX, bus_.portIn(r[DX])); break;
-    case 0xed: r[AX] = static_cast<u16>(bus_.portIn(r[DX]) | (bus_.portIn(static_cast<u16>(r[DX] + 1)) << 8)); break;
-    case 0xee: bus_.portOut(r[DX], lo(AX)); break;
-    case 0xef: bus_.portOut(r[DX], lo(AX)); bus_.portOut(static_cast<u16>(r[DX] + 1), hi(AX)); break;
-    case 0xf4: halted = true; break;
-    case 0xf5: setFlag(CF, !flag(CF)); break;
-    case 0xf6: {
+    case op::jcxz: { const i8 d = static_cast<i8>(fetch8()); if (!r[CX]) ip = static_cast<u16>(ip + d); break; }
+    case op::inAlImm: setLo(AX, bus_.portIn(fetch8())); break;
+    case op::inAxImm: { const u16 p = fetch8(); r[AX] = static_cast<u16>(bus_.portIn(p) | (bus_.portIn(static_cast<u16>(p + 1)) << 8)); break; }
+    case op::outImmAl: bus_.portOut(fetch8(), lo(AX)); break;
+    case op::outImmAx: { const u16 p = fetch8(); bus_.portOut(p, lo(AX)); bus_.portOut(static_cast<u16>(p + 1), hi(AX)); break; }
+    case op::call: { const u16 d = fetch16(); push(ip); ip = static_cast<u16>(ip + d); break; }
+    case op::jmp: { const u16 d = fetch16(); ip = static_cast<u16>(ip + d); break; }
+    case op::jmpFar: { const u16 off = fetch16(), seg = fetch16(); s[CS] = seg; ip = off; break; }
+    case op::jmpShort: { const i8 d = static_cast<i8>(fetch8()); ip = static_cast<u16>(ip + d); break; }
+    case op::inAlDx: setLo(AX, bus_.portIn(r[DX])); break;
+    case op::inAxDx: r[AX] = static_cast<u16>(bus_.portIn(r[DX]) | (bus_.portIn(static_cast<u16>(r[DX] + 1)) << 8)); break;
+    case op::outDxAl: bus_.portOut(r[DX], lo(AX)); break;
+    case op::outDxAx: bus_.portOut(r[DX], lo(AX)); bus_.portOut(static_cast<u16>(r[DX] + 1), hi(AX)); break;
+    case op::hlt: halted = true; break;
+    case op::cmc: setFlag(CF, !flag(CF)); break;
+    case op::unaryRm8: {
       const u8 m = fetch8();
       const Operand o = modrm(m);
       const u8 v = get8(o);
       switch ((m >> 3) & 7) {
-        case 0: case 1: alu8(4, v, fetch8()); break;
-        case 2: set8(o, static_cast<u8>(~v)); break;
-        case 3: { const u8 n = alu8(5, 0, v); set8(o, n); setFlag(CF, v != 0); break; }
-        case 4: { r[AX] = static_cast<u16>(lo(AX) * v); const bool c = hi(AX) != 0; setFlag(CF, c); setFlag(OF, c); break; }
-        case 5: { const i16 p = static_cast<i16>(static_cast<i8>(lo(AX)) * static_cast<i8>(v)); r[AX] = static_cast<u16>(p); const bool c = p != static_cast<i8>(p); setFlag(CF, c); setFlag(OF, c); break; }
-        case 6: {
-          if (!v || r[AX] / v > 0xff) throw CpuError("division overflow at " + where());
+        case kTest: case kTest1: alu8(kAnd, v, fetch8()); break;
+        case kNot: set8(o, static_cast<u8>(~v)); break;
+        case kNeg: { const u8 n = alu8(kSub, 0, v); set8(o, n); setFlag(CF, v != 0); break; }
+        case kMul: { r[AX] = static_cast<u16>(lo(AX) * v); const bool c = hi(AX) != 0; setFlag(CF, c); setFlag(OF, c); break; }
+        case kImul: { const i16 p = static_cast<i16>(static_cast<i8>(lo(AX)) * static_cast<i8>(v)); r[AX] = static_cast<u16>(p); const bool c = p != static_cast<i8>(p); setFlag(CF, c); setFlag(OF, c); break; }
+        case kDiv: {
+          if (!v || r[AX] / v > UINT8_MAX) throw CpuError("division overflow at " + where());
           const u16 a = r[AX];
           setLo(AX, static_cast<u8>(a / v));
           setHi(AX, static_cast<u8>(a % v));
           break;
         }
-        default: {
+        default: {  // idiv
           const i16 a = static_cast<i16>(r[AX]);
           const i16 d = static_cast<i8>(v);
-          if (!d || a / d > 127 || a / d < -128) throw CpuError("division overflow at " + where());
+          if (!d || a / d > INT8_MAX || a / d < INT8_MIN) throw CpuError("division overflow at " + where());
           setLo(AX, static_cast<u8>(a / d));
           setHi(AX, static_cast<u8>(a % d));
           break;
@@ -646,27 +681,27 @@ void Cpu::step() {
       }
       break;
     }
-    case 0xf7: {
+    case op::unaryRm16: {
       const u8 m = fetch8();
       const Operand o = modrm(m);
       const u16 v = get16(o);
       switch ((m >> 3) & 7) {
-        case 0: case 1: alu16(4, v, fetch16()); break;
-        case 2: set16(o, static_cast<u16>(~v)); break;
-        case 3: { const u16 n = alu16(5, 0, v); set16(o, n); setFlag(CF, v != 0); break; }
-        case 4: { const u32 p = u32{r[AX]} * v; r[AX] = static_cast<u16>(p); r[DX] = static_cast<u16>(p >> 16); const bool c = r[DX] != 0; setFlag(CF, c); setFlag(OF, c); break; }
-        case 5: { const i32 p = i32{static_cast<i16>(r[AX])} * static_cast<i16>(v); r[AX] = static_cast<u16>(p); r[DX] = static_cast<u16>(static_cast<u32>(p) >> 16); const bool c = p != static_cast<i16>(p); setFlag(CF, c); setFlag(OF, c); break; }
-        case 6: {
+        case kTest: case kTest1: alu16(kAnd, v, fetch16()); break;
+        case kNot: set16(o, static_cast<u16>(~v)); break;
+        case kNeg: { const u16 n = alu16(kSub, 0, v); set16(o, n); setFlag(CF, v != 0); break; }
+        case kMul: { const u32 p = u32{r[AX]} * v; r[AX] = static_cast<u16>(p); r[DX] = static_cast<u16>(p >> 16); const bool c = r[DX] != 0; setFlag(CF, c); setFlag(OF, c); break; }
+        case kImul: { const i32 p = i32{static_cast<i16>(r[AX])} * static_cast<i16>(v); r[AX] = static_cast<u16>(p); r[DX] = static_cast<u16>(static_cast<u32>(p) >> 16); const bool c = p != static_cast<i16>(p); setFlag(CF, c); setFlag(OF, c); break; }
+        case kDiv: {
           const u32 a = (u32{r[DX]} << 16) | r[AX];
-          if (!v || a / v > 0xffff) throw CpuError("division overflow at " + where());
+          if (!v || a / v > UINT16_MAX) throw CpuError("division overflow at " + where());
           r[AX] = static_cast<u16>(a / v);
           r[DX] = static_cast<u16>(a % v);
           break;
         }
-        default: {
+        default: {  // idiv
           const i32 a = static_cast<i32>((u32{r[DX]} << 16) | r[AX]);
           const i32 d = static_cast<i16>(v);
-          if (!d || a / d > 32767 || a / d < -32768) throw CpuError("division overflow at " + where());
+          if (!d || a / d > INT16_MAX || a / d < INT16_MIN) throw CpuError("division overflow at " + where());
           r[AX] = static_cast<u16>(a / d);
           r[DX] = static_cast<u16>(a % d);
           break;
@@ -674,31 +709,31 @@ void Cpu::step() {
       }
       break;
     }
-    case 0xf8: setFlag(CF, false); break;
-    case 0xf9: setFlag(CF, true); break;
-    case 0xfa: setFlag(IF, false); break;
-    case 0xfb: setFlag(IF, true); break;
-    case 0xfc: setFlag(DF, false); break;
-    case 0xfd: setFlag(DF, true); break;
-    case 0xfe: {
+    case op::clc: setFlag(CF, false); break;
+    case op::stc: setFlag(CF, true); break;
+    case op::cli: setFlag(IF, false); break;
+    case op::sti: setFlag(IF, true); break;
+    case op::cld: setFlag(DF, false); break;
+    case op::std_: setFlag(DF, true); break;
+    case op::incDecRm8: {
       const u8 m = fetch8();
       const Operand o = modrm(m);
       const int sub = (m >> 3) & 7;
-      if (sub > 1) bad(op);
-      set8(o, inc8(get8(o), sub == 1));
+      if (sub > kDecRm) bad(op);
+      set8(o, inc8(get8(o), sub == kDecRm));
       break;
     }
-    case 0xff: {
+    case op::groupRm16: {
       const u8 m = fetch8();
       const Operand o = modrm(m);
       switch ((m >> 3) & 7) {
-        case 0: set16(o, inc16(get16(o), false)); break;
-        case 1: set16(o, inc16(get16(o), true)); break;
-        case 2: { const u16 t = get16(o); push(ip); ip = t; break; }
-        case 3: { if (o.isReg) bad(op); const u16 off = read16(o.seg, o.off), seg = read16(o.seg, static_cast<u16>(o.off + 2)); push(s[CS]); push(ip); s[CS] = seg; ip = off; break; }
-        case 4: ip = get16(o); break;
-        case 5: { if (o.isReg) bad(op); const u16 off = read16(o.seg, o.off), seg = read16(o.seg, static_cast<u16>(o.off + 2)); s[CS] = seg; ip = off; break; }
-        case 6: push(get16(o)); break;
+        case kIncRm: set16(o, inc16(get16(o), false)); break;
+        case kDecRm: set16(o, inc16(get16(o), true)); break;
+        case kCallRm: { const u16 t = get16(o); push(ip); ip = t; break; }
+        case kCallFarRm: { if (o.isReg) bad(op); const u16 off = read16(o.seg, o.off), seg = read16(o.seg, static_cast<u16>(o.off + 2)); push(s[CS]); push(ip); s[CS] = seg; ip = off; break; }
+        case kJmpRm: ip = get16(o); break;
+        case kJmpFarRm: { if (o.isReg) bad(op); const u16 off = read16(o.seg, o.off), seg = read16(o.seg, static_cast<u16>(o.off + 2)); s[CS] = seg; ip = off; break; }
+        case kPushRm: push(get16(o)); break;
         default: bad(op);
       }
       break;

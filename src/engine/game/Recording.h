@@ -18,6 +18,7 @@
 #include "core/Bcd.h"
 #include "core/Keys.h"
 #include "core/Types.h"
+#include "engine/Values.h"
 #include "game/Config.h"
 
 namespace encore {
@@ -46,7 +47,7 @@ struct Recording {
     bool noTilt = false;
     bool otherSteps = false;  ///< the cheat that has the ball move at the other screen mode's pace
     u8 balls = 0;  ///< as the options or the balls cheat have it; 0: as the options have it
-    u16 scrollPos = 0xffff;  ///< the first row the waiting table's screen showed; 0xffff: where a table opens
+    u16 scrollPos = kNone;   ///< the first row the waiting table's screen showed; kNone: where a table opens
     u16 scrollAt = 0;        ///< the same in sixteenths of a row, as it was being followed
     bool operator==(const Carry&) const = default;
   };
@@ -95,8 +96,8 @@ Recording replay(ByteView prg, ByteView module, const Recording& recording, HowP
 
 /// What a server will take.
 struct VerifyLimits {
-  u32 maxPlayed = 60 * 60 * 60 * 3;    ///< three hours, the pause left out
-  u32 maxFrames = 60 * 60 * 60 * 24;   ///< and a day in all, to bound the time the replay takes
+  u32 maxPlayed = (60 * 60 * 60) * 3;    ///< three hours, the pause left out
+  u32 maxFrames = (60 * 60 * 60) * 24;   ///< and a day in all, to bound the time the replay takes
   std::size_t maxEvents = 2'000'000;
 };
 

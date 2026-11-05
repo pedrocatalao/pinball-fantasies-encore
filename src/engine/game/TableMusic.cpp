@@ -5,7 +5,7 @@
 namespace encore {
 
 TableMusic::TableMusic(Engine& engine, MusicDriver& driver)
-    : engine_(engine), driver_(driver), lastOfMusic_(engine.kb(0x3aac, 1)), silence_(engine.kb(0x3ab3, 1)) {}
+    : engine_(engine), driver_(driver), lastOfMusic_(engine.kb(at::musicLastPlaceInsn, 1)), silence_(engine.kb(at::silencePlaceInsn, 1)) {}
 
 /// Function 0x10 as the table sees it: the answer is the place the music was at.
 u8 TableMusic::jump(u16 position) {
@@ -20,10 +20,10 @@ u32 TableMusic::view() const {
   State s;
   s.position = position_;
   s.interrupt = interrupt_;
-  s.repeat = engine_.B(0x230d);
-  s.priority = engine_.B(0x3389);
-  s.music = engine_.B(0x230a);
-  s.off = engine_.B(0x231a) != 0;
+  s.repeat = engine_.B(at::musicRepeats);
+  s.priority = engine_.B(at::musicPriority);
+  s.music = engine_.B(at::musicNext);
+  s.off = engine_.B(at::musicOff) != 0;
   return s.pack();
 }
 
@@ -31,19 +31,19 @@ void TableMusic::setView(u32 packed) {
   const State s(packed);
   position_ = s.position;
   interrupt_ = s.interrupt;
-  if (engine_.B(0x230d) != 0 && s.repeat == 0) {  // the jingle has ended (cs:3a6a)
-    engine_.B(0x338e) = 0xff;
-    engine_.B(0x338f) = 0xff;
+  if (engine_.B(at::musicRepeats) != 0 && s.repeat == 0) {  // the jingle has ended (cs:3a6a)
+    engine_.B(at::jingleEnded) = kSet;
+    engine_.B(at::jingleEndedRules) = kSet;
   }
-  engine_.B(0x230d) = s.repeat;
-  engine_.B(0x3389) = s.priority;
-  engine_.B(0x230a) = s.music;
-  if ((engine_.B(0x231a) != 0) != s.off) engine_.B(0x231a) = s.off ? 0xff : 0;
+  engine_.B(at::musicRepeats) = s.repeat;
+  engine_.B(at::musicPriority) = s.priority;
+  engine_.B(at::musicNext) = s.music;
+  if ((engine_.B(at::musicOff) != 0) != s.off) engine_.B(at::musicOff) = s.off ? kSet : 0;
   last_ = view();
 }
 
 void TableMusic::give() {
-  after_.store(engine_.B(0x230c), std::memory_order_relaxed);
+  after_.store(engine_.B(at::musicAfter), std::memory_order_relaxed);
   const State now(view()), was(last_);
   const bool told = std::exchange(told_, false);
   if (now.pack() == was.pack() && !told) return;

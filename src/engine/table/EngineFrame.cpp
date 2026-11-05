@@ -2,24 +2,32 @@
 #include "engine/table/Engine.h"
 
 namespace encore {
+namespace {
+
+constexpr u8 noSlope = 0xff;  ///< slopes_: no slope found for the stretch
+constexpr u16 kCheatsEnd = 0xff;  ///< ends the cheats' list, in place of a routine
+constexpr u8 kWordEnd = '$';  ///< ends a cheat's word, as DOS ends a string
+constexpr u8 kPolled = 8;  ///< what the music's callback is given when the driver is polled
+}  // namespace
 
 Engine::Engine(ByteView prg, int table) : Program(prg, table) {
   for (auto& plane : video_) plane.assign(0x10000, 0);
   // Which slope each stretch of eight dots lies on, worked out once from the masks as the
   // program comes with them: the first of the stretch to its left, itself and the one to
-  // its right that has nothing solid in it says so (cs:59d9), and 0xff if none has.
+  // its right that has nothing solid in it says so (cs:59d9), and noSlope if none has.
   for (int layer = 0; layer < 2; ++layer) {
-    const u16 marks = S(layer == 0 ? 0x4114 : 0x7734), walls = S(layer == 0 ? 0x3b74 : 0x46b4), slope = S(layer == 0 ? 0x7194 : 0x7cd4);
+    const u16 marks = S(layer == 0 ? at::marksGround : at::marksRamps), walls = S(layer == 0 ? at::wallsGround : at::wallsRamps),
+              slope = S(layer == 0 ? at::slopesGround : at::slopesRamps);
     auto& out = slopes_[static_cast<std::size_t>(layer)];
-    out.assign(0x28 * 0x240, 0xff);
+    out.assign(0x28 * 0x240, u8{noSlope});
     auto clear = [&](u16 at) { return farB(marks, at) == 0 && farB(walls, at) == 0; };
     for (u16 at = 0; at < out.size(); ++at) {
-      if (at != 0 && clear(static_cast<u16>(at - 1))) out[at] = farB(slope, static_cast<u16>(at - 1)) & 0x0f;
-      else if (clear(at)) out[at] = farB(slope, at) & 0x0f;
-      else if (clear(static_cast<u16>(at + 1))) out[at] = farB(slope, static_cast<u16>(at + 1)) & 0x0f;
+      if (at != 0 && clear(static_cast<u16>(at - 1))) out[at] = farB(slope, static_cast<u16>(at - 1)) & slopeRec::number;
+      else if (clear(at)) out[at] = farB(slope, at) & slopeRec::number;
+      else if (clear(static_cast<u16>(at + 1))) out[at] = farB(slope, static_cast<u16>(at + 1)) & slopeRec::number;
     }
   }
-  bind(0x69fc, [] {});  // the original's "nothing": a lone ret, which empty slots point at
+  bind(at::nothing, [] {});  // the original's "nothing": a lone ret, which empty slots point at
   bindDisplay();
   bindGame();
   bindPlunger();
@@ -43,7 +51,7 @@ void Engine::frame() {
 void Engine::frameSteps() {
   physicsSteps();
   if (!stepsTogether) return;
-  B(at::inMidFrame) = 0xff;
+  B(at::inMidFrame) = kSet;
   physicsSteps();
   B(at::inMidFrame) = 0;
 }
@@ -52,65 +60,65 @@ void Engine::frameSteps() {
 // cs:3e44, the keyboard interrupt
 // ---------------------------------------------------------------------------------------
 void Engine::key(u8 al) {
-  if (!(al & 0x80)) {
+  if (!(al & scancodes::released)) {
     B(at::lastKey) = al;
-    CB(0x3476) = 0x0f;
+    CB(at::keyDown) = scancodes::keyDownMark;
   }
-  if (CB(0x3f89) == 0xff) return keyExtended(al);
-  if (al == 0xe0) {
-    CB(0x3f89) = 0xff;
+  if (CB(at::extendedKey) == kSet) return keyExtended(al);
+  if (al == scancodes::extended) {
+    CB(at::extendedKey) = kSet;
     return;
   }
-  if (al == 0x57) { B(0x3553) = 0x0b; return; }  // F11
-  if (al == 0x58) { B(0x3553) = 0x0c; return; }  // F12
+  if (al == scancodes::f11) { B(at::scrollKey) = scrollKey::f11; return; }
+  if (al == scancodes::f12) { B(at::scrollKey) = scrollKey::f12; return; }
   // left shift, alt, ctrl: the left flipper
-  if ((al == 0x2a || al == 0x38 || al == 0x1d) && !(B(at::keys) & 2)) {
-    B(at::keys) |= 2;
-    if (!amended || B(0x33cf) != 0) B(0x338b) = 0xff;  // (amended: not while the flippers are dead)
-    if (B(0x33cf) != 0) effect(0xc2d);
+  if ((al == scancodes::leftShift || al == scancodes::alt || al == scancodes::ctrl) && !(B(at::keys) & keyBits::leftFlipper)) {
+    B(at::keys) |= keyBits::leftFlipper;
+    if (!amended || B(at::flippersLive) != 0) B(at::flipperPressed) = kSet;  // (amended: not while the flippers are dead)
+    if (B(at::flippersLive) != 0) effect(at::soundFlipper);
     return;
   }
-  if (al == 0x36 && !(B(at::keys) & 1)) {  // right shift: the right flipper
-    B(at::keys) |= 1;
-    if (!amended || B(0x33cf) != 0) B(0x338b) = 0xff;  // (amended: not while the flippers are dead)
-    if (B(0x33cf) != 0) effect(0xc2d);
+  if (al == scancodes::rightShift && !(B(at::keys) & keyBits::rightFlipper)) {  // right shift: the right flipper
+    B(at::keys) |= keyBits::rightFlipper;
+    if (!amended || B(at::flippersLive) != 0) B(at::flipperPressed) = kSet;  // (amended: not while the flippers are dead)
+    if (B(at::flippersLive) != 0) effect(at::soundFlipper);
     return;
   }
-  if (al == 0xb6) { B(at::keys) &= 0xfe; return; }
-  if (al == 0xaa || al == 0xb8 || al == 0x9d) { B(at::keys) &= 0xfd; return; }
-  if (al == 0x39) { B(0x2310) = 0xff; return; }  // space: the nudge, held
-  if (al == 0xb9) {
-    B(0x2310) = 0;
-    CB(0x3477) = 0;
+  if (al == scancodes::up(scancodes::rightShift)) { B(at::keys) &= static_cast<u8>(~keyBits::rightFlipper); return; }
+  if (al == scancodes::up(scancodes::leftShift) || al == scancodes::up(scancodes::alt) || al == scancodes::up(scancodes::ctrl)) { B(at::keys) &= static_cast<u8>(~keyBits::leftFlipper); return; }
+  if (al == scancodes::space) { B(at::spaceHeld) = kSet; return; }  // space: the nudge, held
+  if (al == scancodes::up(scancodes::space)) {
+    B(at::spaceHeld) = 0;
+    CB(at::nudgeHeld) = 0;
   }
 }
 
 /// cs:3f8a: the key after an 0xe0, which is how the arrows and the right-hand alt and ctrl
 /// arrive.
 void Engine::keyExtended(u8 al) {
-  CB(0x3f89) = 0;
-  if (B(0x3713) == 0xff) {  // no game: page up and page down choose the mid-frame steps
-    if (al == 0x49) B(at::keys) &= 0xfb;
-    else if (al == 0x51) B(at::keys) |= 4;
+  CB(at::extendedKey) = 0;
+  if (B(at::attract) == kSet) {  // no game: page up and page down choose the mid-frame steps
+    if (al == scancodes::pageUp) B(at::keys) &= static_cast<u8>(~keyBits::oneStep);
+    else if (al == scancodes::pageDown) B(at::keys) |= keyBits::oneStep;
     return;
   }
   switch (al) {
-    case 0x50:  // down arrow: the plunger is pulled
-      W(at::plungerRoutine) = F(0x5e0d);
-      B(0x354f) = 0xff;
+    case scancodes::down:  // down arrow: the plunger is pulled
+      W(at::plungerRoutine) = F(at::plungerPulling);
+      B(at::plungerHeld) = kSet;
       break;
-    case 0xd0:  // and let go
-      W(at::plungerRoutine) = F(0x5e6a);
-      B(0x354f) = 0;
+    case scancodes::up(scancodes::down):  // and let go
+      W(at::plungerRoutine) = F(at::plungerLetGo);
+      B(at::plungerHeld) = 0;
       break;
-    case 0x38: case 0x1d:  // right alt, right ctrl
-      if (!(B(at::keys) & 1)) {
-        B(at::keys) |= 1;
-        if (!amended || B(0x33cf) != 0) B(0x338b) = 0xff;  // (amended: not while the flippers are dead)
-        if (B(0x33cf) != 0) effect(0xc2d);
+    case scancodes::alt: case scancodes::ctrl:  // right alt, right ctrl
+      if (!(B(at::keys) & keyBits::rightFlipper)) {
+        B(at::keys) |= keyBits::rightFlipper;
+        if (!amended || B(at::flippersLive) != 0) B(at::flipperPressed) = kSet;  // (amended: not while the flippers are dead)
+        if (B(at::flippersLive) != 0) effect(at::soundFlipper);
       }
       break;
-    case 0xb8: case 0x9d: B(at::keys) &= 0xfe; break;
+    case scancodes::up(scancodes::alt): case scancodes::up(scancodes::ctrl): B(at::keys) &= static_cast<u8>(~keyBits::rightFlipper); break;
     default: break;
   }
 }
@@ -119,100 +127,100 @@ void Engine::keyExtended(u8 al) {
 // cs:41c6, the callback at the start of the frame
 // ---------------------------------------------------------------------------------------
 void Engine::frameCallback() {
-  ++W(0x354b);
-  B(0x354d) = 0xff;
-  B(0x354e) = 0xff;
-  if (B(0x2f29) != 0xff) return;
-  B(0x36f2) = 0xff;  // the driver says no frame was missed
-  if (B(0x33f0) != 0) --B(0x33f0);
+  ++W(at::frameCount);
+  B(at::coloursInterrupted) = kSet;
+  B(at::lightsOutInterrupted) = kSet;
+  if (B(at::callbacksOn) != kSet) return;
+  B(at::frameOnTime) = kSet;  // the driver says no frame was missed
+  if (B(at::afterPause) != 0) --B(at::afterPause);
   W(at::loopCounter) += 0x406;
-  if (B(0x3713) == 0xff) return attractFrame();
-  B(0x230e) = 0;
-  if (CB(0x444b) == 0xff) return;
-  const u8 busy = B(0x23aa);
-  B(0x23aa) = 0xff;
-  if (busy == 0xff) return;
+  if (B(at::attract) == kSet) return attractFrame();
+  B(at::inFrameCallback) = 0;
+  if (CB(at::midFrameDue) == kSet) return;
+  const u8 busy = B(at::stepsBusy);
+  B(at::stepsBusy) = kSet;
+  if (busy == kSet) return;
 
   // Which of the ball and the flippers is drawn before the sub-steps and which after depends
   // on how far down the screen each is; the flags are kept as the original keeps them.
-  B(0x2f0a) = 0;
-  B(0x2f0b) = 0;
+  B(at::thirdWithBall) = 0;
+  B(at::thirdMidFrame) = 0;
   const u16 ballY = W(at::ballY);
-  if (ballY >= kw(0x4283, 4) && ballY <= kw(0x428e, 4)) {
-    B(0x2f0a) = 0xff;
-  } else if (W(0x2f02) >= (high() ? kw(0x42ae, 1) : kw(0x42a1, 1))) {
-    B(0x2f0b) = 0xff;
+  if (ballY >= kw(at::thirdBallTopInsn, 4) && ballY <= kw(at::thirdBallBottomInsn, 4)) {
+    B(at::thirdWithBall) = kSet;
+  } else if (W(at::screenTop) >= (high() ? kw(at::thirdScreenTopHighInsn, 1) : kw(at::thirdScreenTopLowInsn, 1))) {
+    B(at::thirdMidFrame) = kSet;
   } else {
-    drawFlipper(2);
+    drawFlipper(flipperRec::third);
   }
-  if (ballY >= static_cast<u16>(W(0x2f02) + (high() ? 0x9e : 0x67))) {
-    if (B(0x2f06) != 0xff) {
-      B(0x2f09) = 0xff;
+  if (ballY >= static_cast<u16>(W(at::screenTop) + (high() ? 0x9e : 0x67))) {
+    if (B(at::drawOrder) != kSet) {
+      B(at::flippersWithBall) = kSet;
       drawBall();
     } else {
-      B(0x2f06) = 0;
+      B(at::drawOrder) = 0;
       drawFlipper(0);
       drawFlipper(1);
     }
     frameSteps();
-    B(0x2f07) = 0;
-  } else if (B(0x2f06) != 0xff) {
-    B(0x2f06) = 0xff;
-    B(0x2f07) = 0xff;
-    B(0x2f09) = 0xff;
+    B(at::ballMidFrame) = 0;
+  } else if (B(at::drawOrder) != kSet) {
+    B(at::drawOrder) = kSet;
+    B(at::ballMidFrame) = kSet;
+    B(at::flippersWithBall) = kSet;
     drawBall();
     frameSteps();
   } else {
     drawFlipper(0);
     drawFlipper(1);
     frameSteps();
-    B(0x2f07) = 0xff;
-    if (static_cast<u16>(W(0x2f02) + (high() ? 0xa3 : 0x6c)) < kw(0x4359, 1)) drawFlipper(2);
+    B(at::ballMidFrame) = kSet;
+    if (static_cast<u16>(W(at::screenTop) + (high() ? 0xa3 : 0x6c)) < kw(at::thirdFlipperRowInsn, 1)) drawFlipper(flipperRec::third);
   }
   afterSteps();
-  B(0x23aa) = 0;
-  if (B(0x23ab) != 0) {
-    CB(0x444b) = 0xff;
+  B(at::stepsBusy) = 0;
+  if (B(at::rulesBusy) != 0) {
+    CB(at::midFrameDue) = kSet;
     return;
   }
-  CB(0x444b) = 0xff;
-  B(0x23ab) = 0xff;
-  todo(0x2ab1);  // the table's own
+  CB(at::midFrameDue) = kSet;
+  B(at::rulesBusy) = kSet;
+  todo(at::tableFrame);
   runRules();
   call(W(at::plungerRoutine));
-  if (B(0x36f2) != 0) {
-    const u8 al = CB(0x444a);
-    CB(0x444a) = 0xff;
-    if (al != 0xff) {
+  if (B(at::frameOnTime) != 0) {
+    const u8 al = CB(at::displayBusy);
+    CB(at::displayBusy) = kSet;
+    if (al != kSet) {
       displayStep();
-      CB(0x444a) = 0;
+      CB(at::displayBusy) = 0;
     }
   }
   flushColours();
-  B(0x23ab) = 0;
+  B(at::rulesBusy) = 0;
 }
 
 /// cs:4140: the ball is drawn where it now is, and with it whichever flippers are due. The
 /// engine draws nothing: it keeps where the original would have drawn each, for whoever
 /// makes the picture.
 void Engine::drawBall() {
-  if (B(0x2f09) == 0xff) {
+  if (B(at::flippersWithBall) == kSet) {
     drawFlipper(0);
     drawFlipper(1);
   }
-  if (B(0x2f0a) == 0xff) drawFlipper(2);
+  if (B(at::thirdWithBall) == kSet) drawFlipper(flipperRec::third);
   shown_.ballX = W(at::ballX).s();
-  shown_.ballY = static_cast<i16>(W(at::ballY) + (B(at::ballHidden) == 0xff ? 0 : W(at::nudgeLift)));
+  shown_.ballY = static_cast<i16>(W(at::ballY) + (B(at::ballHidden) == kSet ? 0 : W(at::nudgeLift)));
   shown_.ramps = B(at::layer) != 0;
   ballDrawn_ = true;
 }
 
 /// cs:550e: a flipper is drawn as it now stands.
 void Engine::drawFlipper(int which) {
-  const u16 record = static_cast<u16>(A(0x6950) + which * 0x3c);
-  if (which == 2 && nativeB(record) == 0) return;
-  const u16 now = nativeW(static_cast<u16>(record + 0x1e)), was = nativeW(static_cast<u16>(record + 0x2c));
-  nativeW(static_cast<u16>(record + 0x2c)) = now;
+  const u16 record = static_cast<u16>(A(at::flippers) + which * flipperRec::size);
+  if (which == flipperRec::third && nativeB(record) == 0) return;
+  const u16 now = nativeW(static_cast<u16>(record + flipperRec::picture)), was = nativeW(static_cast<u16>(record + flipperRec::pictureDrawn));
+  nativeW(static_cast<u16>(record + flipperRec::pictureDrawn)) = now;
   shown_.flipper[static_cast<std::size_t>(which)] = now;
   if (now != was && onFlipperDrawn) onFlipperDrawn(record, was, now);
 }
@@ -221,33 +229,33 @@ void Engine::drawFlipper(int which) {
 // cs:55db, the callback part way down the frame
 // ---------------------------------------------------------------------------------------
 void Engine::midFrameCallback() {
-  B(0x354d) = 0xff;
-  B(0x354e) = 0xff;
-  if (B(0x230e) != 0) return;
-  if (B(0x2f29) != 0xff) return;
-  B(0x36f2) = 0xff;
-  if (B(0x3713) == 0xff) return attractMidFrame();
+  B(at::coloursInterrupted) = kSet;
+  B(at::lightsOutInterrupted) = kSet;
+  if (B(at::inFrameCallback) != 0) return;
+  if (B(at::callbacksOn) != kSet) return;
+  B(at::frameOnTime) = kSet;
+  if (B(at::attract) == kSet) return attractMidFrame();
   if (B(at::inMidFrame) != 0) return;
-  if (CB(0x444b) != 0xff) return;
+  if (CB(at::midFrameDue) != kSet) return;
   scroll();
-  if (B(0x23aa) != 0) return;
-  B(at::inMidFrame) = 0xff;
+  if (B(at::stepsBusy) != 0) return;
+  B(at::inMidFrame) = kSet;
   if (!stepsTogether) physicsSteps();
-  if (B(0x2f07) == 0xff) {
-    B(0x2f09) = 0;
+  if (B(at::ballMidFrame) == kSet) {
+    B(at::flippersWithBall) = 0;
     drawBall();
   }
-  if (B(0x2f0b) == 0xff) drawFlipper(2);
-  if (const u8 al = B(0x3714); al != 0) {  // a game was asked for: with this many players
-    B(0x3714) = 0;
-    B(0x3716) = static_cast<u8>(al - 0x3a);
-    B(0x1d9b) = static_cast<u8>(al - 0x3a + 0x37);
-    startScript(A(0x1aea));
-    effect(0xc65);
-    B(0x33e3) = 0;
-    addTimer(F(0x61e9));
+  if (B(at::thirdMidFrame) == kSet) drawFlipper(flipperRec::third);
+  if (const u8 al = B(at::startKey); al != 0) {  // a game was asked for: with this many players
+    B(at::startKey) = 0;
+    B(at::players) = static_cast<u8>(al - (scancodes::f1 - 1));
+    B(at::playersDigit) = static_cast<u8>(al - (scancodes::f1 - 1) + 0x37);
+    startScript(A(at::scriptGameStartPlayers));
+    effect(at::soundGameStart);
+    B(at::playersMayJoin) = 0;
+    addTimer(F(at::setStartKeysActiveTimer));
   }
-  CB(0x444b) = 0;
+  CB(at::midFrameDue) = 0;
   B(at::inMidFrame) = 0;
 }
 
@@ -255,12 +263,12 @@ void Engine::midFrameCallback() {
 void Engine::attractFrame() {
   attractLights();
   displayFlash();
-  if (B(0x36f2) != 0) {
-    const u8 al = CB(0x444a);
-    CB(0x444a) = 0xff;
-    if (al != 0xff) {
+  if (B(at::frameOnTime) != 0) {
+    const u8 al = CB(at::displayBusy);
+    CB(at::displayBusy) = kSet;
+    if (al != kSet) {
       displayStep();
-      CB(0x444a) = 0;
+      CB(at::displayBusy) = 0;
     }
   }
   flushColours();
@@ -269,24 +277,24 @@ void Engine::attractFrame() {
 /// cs:60c5: the screen drifts up and down the table, and a game starts when one is asked for.
 void Engine::attractMidFrame() {
   const i16 bottom = high() ? 0x103 : 0x171;
-  if (W(0x3383).s() >= bottom) W(0x3718) = 0xffff;
-  if (W(0x3383).s() <= 0) W(0x3718) = 1;
-  W(0x3383) += W(0x3718);
+  if (W(at::lookAt).s() >= bottom) W(at::attractScroll) = 0xffff;
+  if (W(at::lookAt).s() <= 0) W(at::attractScroll) = 1;
+  W(at::lookAt) += W(at::attractScroll);
   scroll();
-  if (const u8 al = B(0x3714); al != 0) {
-    B(0x3714) = 0;
-    B(0x3716) = static_cast<u8>(al - 0x3a);
-    B(0x1d9b) = static_cast<u8>(al - 0x3a + 0x37);
-    startScript(A(0x1adc));
-    effect(0xc65);
-    W(0x3383) = 0xffff;
-    B(0x3713) = 0;  // cs:5ff9
+  if (const u8 al = B(at::startKey); al != 0) {
+    B(at::startKey) = 0;
+    B(at::players) = static_cast<u8>(al - (scancodes::f1 - 1));
+    B(at::playersDigit) = static_cast<u8>(al - (scancodes::f1 - 1) + 0x37);
+    startScript(A(at::scriptGameStart));
+    effect(at::soundGameStart);
+    W(at::lookAt) = kNone;
+    B(at::attract) = 0;  // cs:5ff9
     newGame();
-    todo(0x000b);
-    todo(0x0202);
-    todo(0x0bca);
-    B(0x33e3) = 0;
-    addTimer(F(0x61e9));
+    todo(at::tableNewGame);
+    todo(at::tableGameMusic);
+    todo(at::serveBall);
+    B(at::playersMayJoin) = 0;
+    addTimer(F(at::setStartKeysActiveTimer));
   }
 }
 
@@ -297,28 +305,28 @@ void Engine::scroll() {
   const i16 last = high() ? 0x103 : 0x171;
   if (row < 0) row = 0;
   else if (static_cast<u16>(row) >= static_cast<u16>(last)) row = last;
-  if (W(0x3383) != 0xffff) {
-    row = static_cast<i16>(W(0x3383) + 0x21);
-    W(0x2f04) = static_cast<u16>(row << 4);
-    W(0x2f02) = static_cast<u16>(row - 0x21);
+  if (W(at::lookAt) != kNone) {
+    row = static_cast<i16>(W(at::lookAt) + 0x21);
+    W(at::scrollFixed) = static_cast<u16>(row << 4);
+    W(at::screenTop) = static_cast<u16>(row - 0x21);
     screenRow_ = static_cast<u16>(row);
     return;
   }
-  if (W(0x3385) != 0xffff) row = W(0x3385).s();
+  if (W(at::lookAtSoft) != kNone) row = W(at::lookAtSoft).s();
   row = static_cast<i16>(row + 0x21);
-  i16 step = static_cast<i16>((row - (W(0x2f04).s() >> 4)) * W(0x23ac).s());
-  W(0x2f04) += static_cast<u16>(step >> 2);
-  i16 off = static_cast<i16>(row - (W(0x2f04).s() >> 4));
+  i16 step = static_cast<i16>((row - (W(at::scrollFixed).s() >> 4)) * W(at::scrollSpeed).s());
+  W(at::scrollFixed) += static_cast<u16>(step >> 2);
+  i16 off = static_cast<i16>(row - (W(at::scrollFixed).s() >> 4));
   if (off >= 0) {
     off = static_cast<i16>(off - (high() ? 0xaa : 0x73));
-    if (off >= 0) W(0x2f04) += static_cast<u16>(off << 4);
+    if (off >= 0) W(at::scrollFixed) += static_cast<u16>(off << 4);
   } else {
     off = static_cast<i16>(off + (high() ? 0x82 : 0x4b));
-    if (off <= 0) W(0x2f04) += static_cast<u16>(off << 4);
+    if (off <= 0) W(at::scrollFixed) += static_cast<u16>(off << 4);
   }
-  const i16 shown = static_cast<i16>((W(0x2f04).s() >> 4) + W(at::nudgeLift).s());
+  const i16 shown = static_cast<i16>((W(at::scrollFixed).s() >> 4) + W(at::nudgeLift).s());
   screenRow_ = static_cast<u16>(shown);
-  W(0x2f02) = static_cast<u16>(shown - 0x21);
+  W(at::screenTop) = static_cast<u16>(shown - 0x21);
 }
 
 // ---------------------------------------------------------------------------------------
@@ -326,299 +334,299 @@ void Engine::scroll() {
 // ---------------------------------------------------------------------------------------
 void Engine::mainLoop() {
   if (pause_ != Pause::No) return paused();  // the original waits inside the pause for a key
-  if (CB(0x3475) != 0) {
+  if (CB(at::keysOn) != 0) {
     u8& key = B(at::lastKey);
-    if (key == 0x43) { key = 0xff; W(0x23ac) = 0x09; }  // F9, F10: how fast the screen follows
-    if (key == 0x44) { key = 0xff; W(0x23ac) = 0x0b; }
-    if (B(0x3553) == 0x0b) { B(0x3553) = 0; W(0x23ac) = 0x14; }
-    if (B(0x3553) == 0x0c) { B(0x3553) = 0; W(0x23ac) = 0x28; }
-    if (B(0x3713) == 0xff) {  // no game
+    if (key == scancodes::f9) { key = scancodes::none; W(at::scrollSpeed) = 0x09; }  // F9, F10: how fast the screen follows
+    if (key == scancodes::f10) { key = scancodes::none; W(at::scrollSpeed) = 0x0b; }
+    if (B(at::scrollKey) == scrollKey::f11) { B(at::scrollKey) = 0; W(at::scrollSpeed) = 0x14; }
+    if (B(at::scrollKey) == scrollKey::f12) { B(at::scrollKey) = 0; W(at::scrollSpeed) = 0x28; }
+    if (B(at::attract) == kSet) {  // no game
       playersKey();
       typeCheat();
-      if (key == 0x01) {  // escape: asks whether to quit (cs:3196)
-        key = 0xff;
-        if (CB(0x3195) != 0xff) {
-          CB(0x3475) = 0;
-          CB(0x3195) = 0xff;
-          startScript(A(0x4414));
+      if (key == scancodes::escape) {  // escape: asks whether to quit (cs:3196)
+        key = scancodes::none;
+        if (CB(at::quitAsked) != kSet) {
+          CB(at::keysOn) = 0;
+          CB(at::quitAsked) = kSet;
+          startScript(A(at::scriptConfirmQuit));
         }
       }
-    } else if (B(0x33ce) != 0xff) {
+    } else if (B(at::betweenBalls) != kSet) {
       bool keys = true;
-      if (B(0x338a) == 0xff) {
-        if (key == 0x01) {  // escape while the ball waits on the plunger: the game is given up (cs:32b1)
-          key = 0xff;
+      if (B(at::ballOnPlunger) == kSet) {
+        if (key == scancodes::escape) {  // escape while the ball waits on the plunger: the game is given up (cs:32b1)
+          key = scancodes::none;
           placeBall(0x12c, 0x23a);
-          CB(0x3475) = 0xff;
-          addTimer(F(0x0b73));
-          call(F(0x01cd));
-          B(at::lastKey) = 0xff;
+          CB(at::keysOn) = kSet;
+          addTimer(F(at::gameOverTimer));
+          call(F(at::tableAttractMusic));
+          B(at::lastKey) = scancodes::none;
           displaySteady();
-          startScript(A(0x19d4));
+          startScript(A(at::scriptAttract));
         }
-        if (CB(0x3475) == 0) keys = false;
+        if (CB(at::keysOn) == 0) keys = false;
         else playersKey();
       }
       if (keys) {
-        if (key == 0x39) {
-          key = 0xff;
+        if (key == scancodes::space) {
+          key = scancodes::none;
           // (amended, with the keys read first: the shake is counted after the frame's moves,
           // so a tilt takes the flippers from the next frame on, not from this one)
           if (amended && keysFirst) nudgeDue_ = true;
           else nudgeKey();
         }
-        if (key == 0x32) { key = 0xff; musicKey(); }
-        if (key == 0x19) { key = 0xff; B(0x230f) = 0xff; }
+        if (key == scancodes::m) { key = scancodes::none; musicKey(); }
+        if (key == scancodes::p) { key = scancodes::none; B(at::pauseAsked) = kSet; }
         pauseKey();
         if (pause_ != Pause::No) return;  // the rest of this turn waits with it
       }
-    } else if (amended && (key == 0x19 || key == 0x32) && W(0x33e7) != F(0x0609)) {
+    } else if (amended && (key == scancodes::p || key == scancodes::m) && W(at::task) != F(at::highScoreName)) {
       // While a ball is being lost the original takes no keys, and keeps the last one pressed:
       // a P or an M pressed then does its work when the next ball comes. Amended: it is
       // dropped. (Not while initials are typed, which are read from the same place.)
-      key = 0xff;
+      key = scancodes::none;
     }
   }
-  if (B(at::lastKey) == 0x01) B(at::lastKey) = 0xff;
+  if (B(at::lastKey) == scancodes::escape) B(at::lastKey) = scancodes::none;
   ++W(at::loopCounter);
   if (B(at::ballHidden) != 0 && !drawsChance()) {  // the spin a ball will be served with is drawn afresh all the while
     u16 spin = W(at::loopCounter) & 0x3ff;
     if (spin & 1) spin = static_cast<u16>(-spin);
     W(at::spin) = spin;
   }
-  if (CB(0x3732) == 0xff) {
+  if (CB(at::quit) == kSet) {
     exited_ = true;
     return;
   }
   // The driver is polled; the silent one calls the music's callback every time it is.
-  if (pollCallsMusic) musicCallback(8);
+  if (pollCallsMusic) musicCallback(kPolled);
 }
 
 /// cs:33f9: F1 to F8 start a game for that many players; enter adds one.
 void Engine::playersKey() {
   u8 al = B(at::lastKey);
-  if (al >= 0x3b && al <= 0x42) {
-    B(at::lastKey) = 0xff;
-    if (B(0x33e3) == 0) return;
-    if (refuseFewerPlayers && B(0x3713) != 0xff && al - 0x3a < B(0x371a)) return;
-    B(0x33e3) = 0;
-    B(0x3714) = al;
-    B(0x3715) = al;
-    B(0x3717) = 0;
+  if (al >= scancodes::f1 && al <= scancodes::f8) {
+    B(at::lastKey) = scancodes::none;
+    if (B(at::playersMayJoin) == 0) return;
+    if (refuseFewerPlayers && B(at::attract) != kSet && al - (scancodes::f1 - 1) < B(at::player)) return;
+    B(at::playersMayJoin) = 0;
+    B(at::startKey) = al;
+    B(at::lastStartKey) = al;
+    B(at::countPlayersAfresh) = 0;
   }
-  if (al != 0x1c) return;
-  B(at::lastKey) = 0xff;
-  if (B(0x3716) >= 8) return;
-  if (B(0x33e3) == 0) return;
-  if (refuseFewerPlayers && B(0x3713) != 0xff && (B(0x3717) != 0 ? 0 : B(0x3716)) + 1 < B(0x371a)) return;
-  if (B(0x3717) != 0) {
-    B(0x3716) = 0;
-    B(0x3717) = 0;
+  if (al != scancodes::enter) return;
+  B(at::lastKey) = scancodes::none;
+  if (B(at::players) >= 8) return;
+  if (B(at::playersMayJoin) == 0) return;
+  if (refuseFewerPlayers && B(at::attract) != kSet && (B(at::countPlayersAfresh) != 0 ? 0 : B(at::players)) + 1 < B(at::player)) return;
+  if (B(at::countPlayersAfresh) != 0) {
+    B(at::players) = 0;
+    B(at::countPlayersAfresh) = 0;
   }
-  ++B(0x3716);
-  al = static_cast<u8>(B(0x3716) + 0x3a);
-  B(0x33e3) = 0;
-  B(0x3714) = al;
-  B(0x3715) = al;
+  ++B(at::players);
+  al = static_cast<u8>(B(at::players) + (scancodes::f1 - 1));
+  B(at::playersMayJoin) = 0;
+  B(at::startKey) = al;
+  B(at::lastStartKey) = al;
 }
 
 /// cs:3549: letters typed while no game is played are matched against the cheats' words.
 void Engine::typeCheat() {
   u8 al = B(at::lastKey);
-  if (al == 0xff) return;
-  al = B(0x3654, al);  // scancode to letter
+  if (al == scancodes::none) return;
+  al = B(at::scancodeLetters, al);
   if (al == 0) return;
-  B(0x3729) = al;
-  B(at::lastKey) = 0xff;
-  B(0x372f, W(0x372d)) = al;
-  ++W(0x372d);
-  if (W(0x372d) > 0x0c) {
-    W(0x372d) = 0;
-    for (u16 i = 0; i < 0x0c; ++i) B(0x372f, i) = 0x20;
+  B(at::cheatLetter) = al;
+  B(at::lastKey) = scancodes::none;
+  B(at::cheatBuffer, W(at::cheatTyped)) = al;
+  ++W(at::cheatTyped);
+  if (W(at::cheatTyped) > 0x0c) {
+    W(at::cheatTyped) = 0;
+    for (u16 i = 0; i < 0x0c; ++i) B(at::cheatBuffer, i) = 0x20;
     return;
   }
-  u16 s = A(0x373d);
-  B(0x372b) = 0;
+  u16 s = A(at::cheats);
+  B(at::cheatPrefix) = 0;
   for (;;) {
     const u16 handler = nativeW(s);
     s = static_cast<u16>(s + 2);
-    if (handler == 0xff) break;
+    if (handler == kCheatsEnd) break;
     u16 typed = 0;
     bool skip = false;
     for (;;) {
       const u8 c = nativeB(s++);
-      if (c == 0x24) {  // the whole word: its routine
-        W(0x372d) = 0;
+      if (c == kWordEnd) {  // the whole word: its routine
+        W(at::cheatTyped) = 0;
         call(handler);
         return;
       }
-      if (typed >= W(0x372d)) {  // so far so good, with more to come
-        B(0x372b) = 0xff;
+      if (typed >= W(at::cheatTyped)) {  // so far so good, with more to come
+        B(at::cheatPrefix) = kSet;
         skip = true;
         break;
       }
       ++typed;
-      if (c != B(0x372f, static_cast<u16>(typed - 1))) {
+      if (c != B(at::cheatBuffer, static_cast<u16>(typed - 1))) {
         skip = true;
         break;
       }
     }
     if (skip)
-      while (nativeB(s++) != 0x24) {}
+      while (nativeB(s++) != kWordEnd) {}
   }
-  if (B(0x372b) == 0xff) return;
-  W(0x372d) = 1;  // no word begins like this: start again from this letter
-  B(0x372f) = B(0x3729);
-  for (u16 i = 1; i < 0x0c; ++i) B(0x372f, i) = 0x20;
+  if (B(at::cheatPrefix) == kSet) return;
+  W(at::cheatTyped) = 1;  // no word begins like this: start again from this letter
+  B(at::cheatBuffer) = B(at::cheatLetter);
+  for (u16 i = 1; i < 0x0c; ++i) B(at::cheatBuffer, i) = 0x20;
 }
 
 /// cs:3478: a press of the space bar shakes the table.
 void Engine::nudgeKey() {
-  if (B(0x372a) == 0xff) return;
-  if (B(0x33e0) != 0xff && B(at::tilted) != 0xff && B(at::ballLost) != 0xff && CB(0x3477) != 0xff) {
+  if (B(at::noTilt) == kSet) return;
+  if (B(at::ballUntouched) != kSet && B(at::tilted) != kSet && B(at::ballLost) != kSet && CB(at::nudgeHeld) != kSet) {
     W(at::tiltCounter) += 0x3c;
-    CB(0x3477) = 0xff;
+    CB(at::nudgeHeld) = kSet;
     if (W(at::tiltCounter) > 0x78) {
-      B(at::tilted) = 0xff;
-      todo(0x0fa0);
+      B(at::tilted) = kSet;
+      todo(at::tableTilt);
     } else if (W(at::tiltCounter) > 0x3c) {
-      todo(0x0fc5);
+      todo(at::tableTiltWarning);
     }
   }
-  B(at::lastKey) = 0xff;
+  B(at::lastKey) = scancodes::none;
 }
 
 /// cs:34e3: M turns the music off and on.
 void Engine::musicKey() {
-  B(0x231a) ^= 0xff;
-  if (B(0x231a) == 0) {
-    B(0xc6f) = 0;
-    B(0xc72) = kb(0x34f2, 1);
-    B(0x230a) = kb(0x34f7, 4);
-    if (B(0x33e0) == 0xff) B(0x230a) = 0;
-    if (static_cast<i8>(B(0x230d)) < 1) B(0x230d) = 1;
+  B(at::musicOff) ^= kSet;
+  if (B(at::musicOff) == 0) {
+    B(at::tunePlunger) = 0;
+    B(at::tuneMain) = kb(at::musicOnTuneInsn, 1);
+    B(at::musicNext) = kb(at::musicOnPlaceInsn, 4);
+    if (B(at::ballUntouched) == kSet) B(at::musicNext) = 0;
+    if (static_cast<i8>(B(at::musicRepeats)) < 1) B(at::musicRepeats) = 1;
   } else {
-    const u8 silence = kb(0x3522, 1);  // the place in the table's music where nothing plays
-    B(0xc6f) = silence;
-    B(0xc72) = silence;
-    if (B(0x230a) != silence) addTimer(F(0x353b));
+    const u8 silence = kb(at::musicOffPlaceInsn, 1);  // the place in the table's music where nothing plays
+    B(at::tunePlunger) = silence;
+    B(at::tuneMain) = silence;
+    if (B(at::musicNext) != silence) addTimer(F(at::musicOffTimer));
   }
 }
 
 /// cs:31cd: P pauses. The callbacks stop doing anything, the music stops, and the display
 /// says so over what it showed, which is kept to put back.
 void Engine::pauseKey() {
-  if (B(0x230f) == 0) return;
-  B(0x2f29) = 0;
+  if (B(at::pauseAsked) == 0) return;
+  B(at::callbacksOn) = 0;
   sound->stop();
   saveDisplay();
-  B(at::lastKey) = 0xff;
+  B(at::lastKey) = scancodes::none;
   pause_ = Pause::AnyKey;
 }
 
 void Engine::paused() {
   const u8 key = B(at::lastKey);
-  if (key == 0xff) return;
-  if (pause_ == Pause::AnyKey && key == 0x01) {  // escape: leave the table?
-    message(A(0x4432), 0x150);
-    B(at::lastKey) = 0xff;
+  if (key == scancodes::none) return;
+  if (pause_ == Pause::AnyKey && key == scancodes::escape) {  // escape: leave the table?
+    message(A(at::textReallyQuit), display::line);
+    B(at::lastKey) = scancodes::none;
     pause_ = Pause::YesOrNo;
     return;
   }
-  if (pause_ == Pause::YesOrNo && B(0x3654, key) == 0x59) {  // yes (cs:323a)
-    B(at::ballHidden) = 0xff;
+  if (pause_ == Pause::YesOrNo && B(at::scancodeLetters, key) == 'Y') {  // yes (cs:323a)
+    B(at::ballHidden) = kSet;
     restoreDisplay();
-    B(0x230f) = 0;
-    B(0x231a) ^= 0xff;
-    CB(0x3a10) = 0xff;
+    B(at::pauseAsked) = 0;
+    B(at::musicOff) ^= kSet;
+    CB(at::pauseQuit) = kSet;
     sound->volume(0);
-    B(0x2f29) = 0xff;
+    B(at::callbacksOn) = kSet;
     sound->start();
     exited_ = true;
     pause_ = Pause::No;
     return;
   }
   // any other key: on with the game (cs:3203)
-  B(0x33f0) = 0x1e;
-  B(at::lastKey) = 0xff;
+  B(at::afterPause) = 0x1e;
+  B(at::lastKey) = scancodes::none;
   sound->start();
   restoreDisplay();
-  B(0x2f29) = 0xff;
-  B(0x230f) = 0;
+  B(at::callbacksOn) = kSet;
+  B(at::pauseAsked) = 0;
   pause_ = Pause::No;
   // what the loop does after the pause, which this turn of it has yet to do
-  if (B(at::lastKey) == 0x01) B(at::lastKey) = 0xff;
+  if (B(at::lastKey) == scancodes::escape) B(at::lastKey) = scancodes::none;
   ++W(at::loopCounter);
   if (B(at::ballHidden) != 0 && !drawsChance()) {
     u16 spin = W(at::loopCounter) & 0x3ff;
     if (spin & 1) spin = static_cast<u16>(-spin);
     W(at::spin) = spin;
   }
-  if (pollCallsMusic) musicCallback(8);
+  if (pollCallsMusic) musicCallback(kPolled);
 }
 
 void Engine::message(u16 text, u16 at) {
-  W(0x3700) = 0xa8;
-  W(0x3702) = 0x50;
-  W(0x3704) = 0x10;
-  fillDisplay(0xa8, 0x50, 0x10);
-  setFont(0);
-  W(0x447b) = 0;
-  W(0x447d) = 0;
+  W(at::fillAt) = display::top;
+  W(at::fillWidth) = 0x50;
+  W(at::fillRows) = 0x10;
+  fillDisplay(display::top, 0x50, 0x10);
+  setFont(font::h13);
+  W(at::glyphRowsCut) = 0;
+  W(at::glyphFirstRow) = 0;
   drawText(text, at);
 }
 
 void Engine::saveDisplay() {
   displayNormal();
   flushColours();
-  u16 to = A(0x33fd);
-  B(0x33fc) = 0x80;
+  u16 to = A(at::savedDisplay);
+  B(at::savedDisplayBit) = 0x80;
   for (int plane = 0; plane < 2; ++plane)
     for (u16 row = 0; row < 0x10; ++row) {
       nativeB(to) = 0;
       for (u16 x = 0; x < 0x50; ++x) {
-        if (dot(plane, static_cast<u16>(0xa8 + row * 0xa8 + x)) == lit()) nativeB(to) |= B(0x33fc);
-        const bool wrapped = B(0x33fc) & 1;
-        B(0x33fc) = static_cast<u8>((B(0x33fc) >> 1) | (wrapped ? 0x80 : 0));
+        if (dot(plane, static_cast<u16>(display::top + row * 0xa8 + x)) == lit()) nativeB(to) |= B(at::savedDisplayBit);
+        const bool wrapped = B(at::savedDisplayBit) & 1;
+        B(at::savedDisplayBit) = static_cast<u8>((B(at::savedDisplayBit) >> 1) | (wrapped ? 0x80 : 0));
         if (wrapped) nativeB(++to) = 0;
       }
     }
-  W(0x33fa) = to;
-  W(0x36fc) = A(0x353e);
-  W(0x36fe) = 0x162;
-  message(A(0x353e), 0x162);
+  W(at::savedDisplayAt) = to;
+  W(at::drawSource) = A(at::textPaused);
+  W(at::drawAt) = display::paused;
+  message(A(at::textPaused), display::paused);
   displayNormal();
   flushColours();
 }
 
 void Engine::restoreDisplay() {
-  u16 from = A(0x33fd);
-  B(0x33fc) = 0x80;
+  u16 from = A(at::savedDisplay);
+  B(at::savedDisplayBit) = 0x80;
   for (int plane = 0; plane < 2; ++plane)
     for (u16 row = 0; row < 0x10; ++row)
       for (u16 x = 0; x < 0x50; ++x) {
-        dot(plane, static_cast<u16>(0xa8 + row * 0xa8 + x)) = (nativeB(from) & B(0x33fc)) ? lit() : unlit();
-        const bool wrapped = B(0x33fc) & 1;
-        B(0x33fc) = static_cast<u8>((B(0x33fc) >> 1) | (wrapped ? 0x80 : 0));
+        dot(plane, static_cast<u16>(display::top + row * 0xa8 + x)) = (nativeB(from) & B(at::savedDisplayBit)) ? lit() : unlit();
+        const bool wrapped = B(at::savedDisplayBit) & 1;
+        B(at::savedDisplayBit) = static_cast<u8>((B(at::savedDisplayBit) >> 1) | (wrapped ? 0x80 : 0));
         if (wrapped) ++from;
       }
-  W(0x33fa) = from;
+  W(at::savedDisplayAt) = from;
 }
 
 /// cs:3a6a: called by the driver when the music comes to a jump (and by the silent driver
 /// whenever it is polled). What it is given and gives back in AL is the place to go on from.
 u8 Engine::musicCallback(u8 al) {
-  const u8 left = --B(0x230d);
+  const u8 left = --B(at::musicRepeats);
   if (left == 0) {
-    B(0x3389) = B(0x230c);
-    B(0x230d) = 0;
-    al = B(0x230a);
-    B(0x338e) = 0xff;
-    B(0x338f) = 0xff;
+    B(at::musicPriority) = B(at::musicAfter);
+    B(at::musicRepeats) = 0;
+    al = B(at::musicNext);
+    B(at::jingleEnded) = kSet;
+    B(at::jingleEndedRules) = kSet;
   } else if (left == 0xff || left == 0x7f) {  // below zero, as the original's signed test has it
-    B(0x230d) = 0;
+    B(at::musicRepeats) = 0;
   }
-  if (B(0x231a) != 0 && al <= kb(0x3aac, 1)) al = kb(0x3ab3, 1);
+  if (B(at::musicOff) != 0 && al <= kb(at::musicLastPlaceInsn, 1)) al = kb(at::silencePlaceInsn, 1);
   return al;
 }
 
@@ -629,41 +637,41 @@ void Engine::addTimer(u16 native) {
   // The original looks for a free slot with BX and leaves it there. A step that goes on to
   // use BX as its place in the script, without having kept it, goes astray in the original
   // too (Party Land's cs:0b5b does), so BX is left the same way here.
-  for (bx = A(0x331b); bx != A(0x337f); bx = static_cast<u16>(bx + 2)) {
-    if (nativeW(bx) != F(0x69fc)) continue;
-    ++W(0x337f);
+  for (bx = A(at::timers); bx != A(at::timerCount); bx = static_cast<u16>(bx + 2)) {
+    if (nativeW(bx) != F(at::nothing)) continue;
+    ++W(at::timerCount);
     nativeW(bx) = native;
-    if (timersRunning_) (startsNow_ ? startedNow_ : waiting_)[static_cast<std::size_t>(bx - A(0x331b)) / 2 % waiting_.size()] = true;
+    if (timersRunning_) (startsNow_ ? startedNow_ : waiting_)[static_cast<std::size_t>(bx - A(at::timers)) / 2 % waiting_.size()] = true;
     return;
   }
   exited_ = true;  // the original gives up when all fifty are taken
 }
 
 void Engine::runTimers() {
-  u16 slot = A(0x331b);
+  u16 slot = A(at::timers);
   // In the original a routine started by another of these is run in the same frame if the
   // free place it was given happens to come later in the list, and in the next if not: by
   // luck. Amended: it waits for the next frame wherever its place is; or, started with
   // `startsNow_`, is run in this one wherever its place is.
   const u16 first = slot;
   timersRunning_ = amended;
-  for (int i = 0, slots = kw(0x5b2a, 1); i < slots; ++i, slot = static_cast<u16>(slot + 2)) {
+  for (int i = 0, slots = kw(at::runTimers, 1); i < slots; ++i, slot = static_cast<u16>(slot + 2)) {
     const std::size_t n = static_cast<std::size_t>(i) % waiting_.size();
     if (waiting_[n]) continue;
     startedNow_[n] = false;  // (its turn comes anyway)
-    W(0x3381) = slot;
+    W(at::timerSlot) = slot;
     bx = slot;  // as the original has it, which matters to a routine that takes BX for its place in a script
     call(nativeW(slot));
   }
   for (bool again = amended; again;) {  // the ones started for this frame in places already passed
     again = false;
     slot = first;
-    for (int i = 0, slots = kw(0x5b2a, 1); i < slots; ++i, slot = static_cast<u16>(slot + 2)) {
+    for (int i = 0, slots = kw(at::runTimers, 1); i < slots; ++i, slot = static_cast<u16>(slot + 2)) {
       const std::size_t n = static_cast<std::size_t>(i) % waiting_.size();
       if (!startedNow_[n]) continue;
       startedNow_[n] = false;
       again = true;
-      W(0x3381) = slot;
+      W(at::timerSlot) = slot;
       bx = slot;
       call(nativeW(slot));
     }
@@ -673,8 +681,8 @@ void Engine::runTimers() {
 }
 
 void Engine::endTimer() {
-  nativeW(W(0x3381)) = F(0x69fc);
-  --W(0x337f);
+  nativeW(W(at::timerSlot)) = F(at::nothing);
+  --W(at::timerCount);
 }
 
 bool Engine::countTo(u16 nativeCounter, u16 limit) {
