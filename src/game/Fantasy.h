@@ -8,8 +8,8 @@
 namespace encore {
 
 /// Offers the download on the first start and fetches it if it is wanted, unpacking
-/// everything the archive holds into `into`. False when the offer was turned down,
-/// which ends the game; true to carry on -- the files being there already, or fetched now,
+/// everything the archive holds into `into`. False when the offer was turned down, or the
+/// window was closed while it was being fetched, which ends the game; true to carry on -- the files being there already, or fetched now,
 /// or the fetching having failed, in which case the game runs with what it has.
 /// Puts the offer to whoever is playing and waits for the answer. The game draws this in
 /// its own window.

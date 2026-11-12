@@ -27,7 +27,9 @@ Unzip it and run it, there's nothing to install.
   (everything goes under `~/.local`). It's optional, the game runs from the folder too.
 - Older versions are on the [releases page](https://github.com/pedrocatalao/pinball-fantasies-encore/releases).
 
-Found a problem? Please [open an issue](https://github.com/pedrocatalao/pinball-fantasies-encore/issues).
+Found a problem? Please [open an issue](https://github.com/pedrocatalao/pinball-fantasies-encore/issues),
+and attach `log.txt` (and `log-previous.txt`, from the start before) from the game's folder
+(see the table below, one level up from `FANTASY`): it says what the game did and what went wrong.
 
 ## It needs the original game files
 

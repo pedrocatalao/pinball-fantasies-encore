@@ -39,6 +39,24 @@ double tablePixelAspect(const encore::TableGame& table) {
   return (4.0 / 3.0) / (320.0 / shaped);
 }
 
+/// The log, kept beside the game's other things so that a player can send it with a report:
+/// this start's, and the one before it, since a start that goes wrong is usually followed by
+/// another, which would otherwise write over what it found.
+constexpr const char* kLogFile = "log.txt";
+constexpr const char* kPreviousLogFile = "log-previous.txt";
+
+void startLog(const std::filesystem::path& dir) {
+  std::error_code ec;
+  std::filesystem::create_directories(dir, ec);
+  if (std::filesystem::exists(dir / kLogFile, ec)) std::filesystem::rename(dir / kLogFile, dir / kPreviousLogFile, ec);
+  log::toFile(dir / kLogFile);
+  const std::time_t now = std::time(nullptr);
+  char stamp[32];
+  std::strftime(stamp, sizeof stamp, "%Y-%m-%d %H:%M:%S", std::localtime(&now));
+  const std::string_view version = thisRelease().empty() ? "dev" : thisRelease();
+  log::info("Pinball Fantasies: Encore! " + std::string(version) + " on " + SDL_GetPlatform() + ", started " + stamp);
+}
+
 
 /// The font picture, as slots into the handful of colours it is drawn with.
 AskFont loadAskFont(const std::filesystem::path& path) {
@@ -189,6 +207,7 @@ bool App::init() {
   // not so much as made.
   portable_ = portableMode();
   saveDir_ = preferencesDir();
+  startLog(saveDir_);
   if (portable_) log::info("portable: the game's things are in " + saveDir_.string());
   discardStaleMove(saveDir_);
   shaderDir_ = executableDir() / "shaders";
@@ -1169,6 +1188,9 @@ void App::movePortable(bool on) {
     SDL_Delay(16);
   }
   if (sender_) sender_->join();
+  // The log goes with the rest; it is let go of while it moves (Windows will not move a file
+  // that is open), and what is said meanwhile is held for it.
+  log::toFile({});
 
   const std::uintmax_t bytes = dataSize(from);
   std::atomic<std::uintmax_t> done{0};
@@ -1194,6 +1216,7 @@ void App::movePortable(bool on) {
   }
   worker.join();
   if (closed) running_ = false;
+  log::toFile((report.ok ? to : from) / kLogFile);
 
   if (report.ok) {
     portable_ = on;
