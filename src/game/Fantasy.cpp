@@ -81,17 +81,18 @@ std::vector<ZipEntry> fetchOnce(std::string& url, std::string& error) {
 }
 
 /// The fetching happens on a thread of its own so that the caller can keep drawing, and is
-/// tried again, after a pause, while it fails.
-std::vector<ZipEntry> fetchWhileWaiting(std::string& url, std::string& error, const FantasyWaitTick& tick) {
+/// tried again, after a pause, while it fails. Closing the window stops it: no pause is waited
+/// out and no try is begun after that, though one under way runs to its end (`closed`).
+std::vector<ZipEntry> fetchWhileWaiting(std::string& url, std::string& error, const FantasyWaitTick& tick, bool& closed) {
   std::vector<ZipEntry> entries;
-  std::atomic<bool> done{false};
+  std::atomic<bool> done{false}, stop{false};
   std::thread worker([&] {
-    for (int attempt = 1; attempt <= kAttempts; ++attempt) {
+    for (int attempt = 1; attempt <= kAttempts && !stop; ++attempt) {
       entries = fetchOnce(url, error);
       if (!entries.empty() || attempt == kAttempts) break;
       const int pause = kPauseSeconds[attempt - 1];
       log::warn("the archive could not be fetched (" + error + "); trying again in " + std::to_string(pause) + " s");
-      std::this_thread::sleep_for(std::chrono::seconds(pause));
+      for (int waited = 0; waited < pause * 10 && !stop; ++waited) std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
     done.store(true, std::memory_order_release);
   });
@@ -99,11 +100,13 @@ std::vector<ZipEntry> fetchWhileWaiting(std::string& url, std::string& error, co
   while (!done.load(std::memory_order_acquire)) {
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
+      if (event.type == SDL_EVENT_QUIT) stop = true;
     }
     if (tick) tick(static_cast<double>(SDL_GetTicks() - start) / 1000.0);
     SDL_Delay(16);
   }
   worker.join();
+  closed = stop;
   return entries;
 }
 
@@ -118,7 +121,12 @@ bool downloadFantasyOnce(const std::filesystem::path& into, const FantasyAsk& as
   }
 
   std::string url, error;
-  const auto entries = fetchWhileWaiting(url, error, tick);
+  bool closed = false;
+  const auto entries = fetchWhileWaiting(url, error, tick, closed);
+  if (closed) {
+    log::info("the window was closed during the download; leaving");
+    return false;
+  }
   if (entries.empty()) {
     log::error("the archive could not be fetched after " + std::to_string(kAttempts) + " tries: " + error);
     return true;
