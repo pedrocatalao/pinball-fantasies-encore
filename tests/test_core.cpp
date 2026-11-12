@@ -12,6 +12,7 @@
 #include "core/Bcd.h"
 #include "core/DataMove.h"
 #include "core/File.h"
+#include "core/Log.h"
 #include "core/Sha256.h"
 
 using namespace encore;
@@ -196,4 +197,29 @@ TEST(sizes_and_writability_are_told_as_they_are) {
   CHECK(!writable(kFrom / "sfx.txt" / "under-a-file"));
   CHECK(freeSpace(kFrom).has_value());
   cleanUp();
+}
+
+// --- the log kept in a file as well (core/Log.h)
+
+TEST(the_log_file_has_every_line_including_those_before_it) {
+  std::error_code ec;
+  const auto dir = std::filesystem::temp_directory_path() / "encore-log-test";
+  std::filesystem::remove_all(dir, ec);
+  std::filesystem::create_directories(dir, ec);
+  auto text = [](const std::filesystem::path& path) {
+    const auto bytes = file::readAll(path);
+    return bytes ? std::string(bytes->begin(), bytes->end()) : std::string();
+  };
+  log::info("before the file");
+  log::toFile(dir / "log.txt");
+  log::warn("in the file");
+  log::toFile({});
+  log::error("while it moves");
+  log::toFile(dir / "log.txt");  // (added to, not written over)
+  log::toFile({});
+  const std::string kept = text(dir / "log.txt");
+  // (with whatever the tests before this one logged, held from before there was a file)
+  const std::string expected = "[info ] before the file\n[warn ] in the file\n[error] while it moves\n";
+  CHECK(kept.size() >= expected.size() && kept.compare(kept.size() - expected.size(), expected.size(), expected) == 0);
+  std::filesystem::remove_all(dir, ec);
 }

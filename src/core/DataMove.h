@@ -14,12 +14,12 @@
 namespace encore {
 
 /// What the game keeps, by name in its folder: the options and best scores, this version's own
-/// flags, the player's online token, the recordings, the HD pictures and the game's files.
-/// Anything else in the folder is not the game's, and stays where it is.
+/// flags, the player's online token, the recordings, the HD pictures, the game's files and its
+/// log. Anything else in the folder is not the game's, and stays where it is.
 inline constexpr std::string_view kMovedItems[] = {
     "PINBALL.CFG", "TABLE1.HI", "TABLE2.HI", "TABLE3.HI", "TABLE4.HI", "fullscreen.txt", "crt.txt",
     "hd.txt", "sfx.txt", "dotmatrix.txt", "trail.txt", "release-offered.txt", "downloaded.txt",
-    "online.txt", "art", "replays", "FANTASY"};
+    "online.txt", "art", "replays", "FANTASY", "log.txt", "log-previous.txt"};
 
 /// The items' size in bytes, of those that are there.
 std::uintmax_t dataSize(const std::filesystem::path& from, std::span<const std::string_view> items = kMovedItems);
