@@ -3,9 +3,11 @@
 #include <SDL3/SDL.h>
 #include <atomic>
 #include <cctype>
+#include <chrono>
 #include <string>
 #include <thread>
 #include <system_error>
+#include <vector>
 
 #include "core/File.h"
 #include "core/Log.h"
@@ -57,15 +59,39 @@ std::optional<std::string> archiveUrl(std::string& error) {
   return url;
 }
 
-/// The fetching happens on a thread of its own so that the caller can keep drawing.
-std::optional<Bytes> fetchWhileWaiting(std::string& url, std::string& error, const FantasyWaitTick& tick) {
-  std::optional<Bytes> body;
+/// How many times the archive is asked for before the game gives up on it, and how long it
+/// waits before each try after the first. The archive is on a host of someone else's, which
+/// some connections reach only now and then.
+constexpr int kAttempts = 5;
+constexpr int kPauseSeconds[kAttempts - 1] = {2, 4, 8, 16};
+
+/// One try: the address from the server, the archive from there, and what it holds. Nothing
+/// when any of the three fails, with the reason in `error`.
+std::vector<ZipEntry> fetchOnce(std::string& url, std::string& error) {
+  const auto where = archiveUrl(error);
+  if (!where) return {};
+  url = *where;
+  log::info("fetching " + url);
+  const auto body = httpDownload(url, &error);
+  if (!body) return {};
+  log::info("fetched " + std::to_string(body->size() / 1024 / 1024) + " MB; unpacking");
+  auto entries = readZip(*body);
+  if (entries.empty()) error = "the archive holds nothing this reader can unpack";
+  return entries;
+}
+
+/// The fetching happens on a thread of its own so that the caller can keep drawing, and is
+/// tried again, after a pause, while it fails.
+std::vector<ZipEntry> fetchWhileWaiting(std::string& url, std::string& error, const FantasyWaitTick& tick) {
+  std::vector<ZipEntry> entries;
   std::atomic<bool> done{false};
   std::thread worker([&] {
-    if (const auto where = archiveUrl(error)) {
-      url = *where;
-      log::info("fetching " + url);
-      body = httpDownload(url, &error);
+    for (int attempt = 1; attempt <= kAttempts; ++attempt) {
+      entries = fetchOnce(url, error);
+      if (!entries.empty() || attempt == kAttempts) break;
+      const int pause = kPauseSeconds[attempt - 1];
+      log::warn("the archive could not be fetched (" + error + "); trying again in " + std::to_string(pause) + " s");
+      std::this_thread::sleep_for(std::chrono::seconds(pause));
     }
     done.store(true, std::memory_order_release);
   });
@@ -78,7 +104,7 @@ std::optional<Bytes> fetchWhileWaiting(std::string& url, std::string& error, con
     SDL_Delay(16);
   }
   worker.join();
-  return body;
+  return entries;
 }
 
 }  // namespace
@@ -92,16 +118,9 @@ bool downloadFantasyOnce(const std::filesystem::path& into, const FantasyAsk& as
   }
 
   std::string url, error;
-  const auto zip = fetchWhileWaiting(url, error, tick);
-  if (!zip) {
-    log::error("the archive could not be fetched: " + error);
-    return true;
-  }
-  log::info("fetched " + std::to_string(zip->size() / 1024 / 1024) + " MB; unpacking");
-
-  const auto entries = readZip(*zip);
+  const auto entries = fetchWhileWaiting(url, error, tick);
   if (entries.empty()) {
-    log::error("the archive holds nothing this reader can unpack");
+    log::error("the archive could not be fetched after " + std::to_string(kAttempts) + " tries: " + error);
     return true;
   }
   // Whatever the archive holds, where it says to put it, under the folder given.
